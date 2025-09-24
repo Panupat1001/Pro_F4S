@@ -86,5 +86,26 @@ router.get('/detail', (req, res) => {
   });
 });
 
+router.get('/read-all', (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit, 10) || 1000, 5000);
+  const sql = `
+    SELECT
+      chem_id      AS id,
+      chem_name,
+      inci_name,
+      chem_unit,
+      chem_type
+    FROM chem
+    ORDER BY chem_name ASC
+    LIMIT ?
+  `;
+  connection.query(sql, [limit], (err, rows) => {
+    if (err) {
+      console.error('read-all chem error:', err);
+      return res.status(500).json({ message: 'read chem failed' });
+    }
+    res.json(rows || []);
+  });
+});
 
 module.exports = router;

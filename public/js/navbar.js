@@ -3,6 +3,7 @@
   const groups = [
     { prefix: "/chem",  navRoot: "/chem"  },
     { prefix: "/brand", navRoot: "/brand" },
+    { prefix: "/product", navRoot: "/product" },
     // เพิ่มได้ เช่น { prefix: "/orders", navRoot: "/orders" },
   ];
 

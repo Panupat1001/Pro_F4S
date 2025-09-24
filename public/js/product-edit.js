@@ -1,109 +1,157 @@
 // public/js/product-edit.js
-document.addEventListener("DOMContentLoaded", async () => {
-  const urlParams = new URLSearchParams(window.location.search);
-  const id = urlParams.get("id");
+document.addEventListener('DOMContentLoaded', () => {
+  const params = new URLSearchParams(location.search);
+  const id = params.get('id');
+  if (!id) { alert('ลิงก์ไม่ถูกต้อง: ไม่พบ id'); return; }
 
-  const form = document.getElementById("productForm");
-  const brandSelect = document.getElementById("brand_id");
+  // ----- DOM -----
+  const form        = document.getElementById('productForm');
 
-  // โหลดแบรนด์ทั้งหมดมาใส่ใน select
-  async function loadBrands(selectedId) {
+  const brandSelect = document.getElementById('brand_id');
+  const productName = document.getElementById('product_name');
+
+  const notifyNo    = document.getElementById('notify_no');
+  const notifyDate  = document.getElementById('notify_date');
+  const expireDate  = document.getElementById('expire_date');
+
+  // file inputs
+  const file1 = document.getElementById('product_picture1');
+  const file2 = document.getElementById('product_picture2');
+  const file3 = document.getElementById('product_picture3');
+
+  // hidden (เก็บ URL จริงที่จะส่งไป DB)
+  const old1  = document.getElementById('old_picture1');
+  const old2  = document.getElementById('old_picture2');
+  const old3  = document.getElementById('old_picture3');
+
+  // previews
+  const preview1 = document.getElementById('preview1');
+  const preview2 = document.getElementById('preview2');
+  const preview3 = document.getElementById('preview3');
+
+  // helpers
+  const setVal = (el, v) => { if (el) el.value = v ?? ''; };
+  const setImg = (img, url) => { if (img) img.src = url || ''; };
+
+  // ===== โหลดข้อมูล =====
+  (async function load() {
     try {
-      const res = await fetch("/brand/read-all"); // ต้องมี API ดึงแบรนด์ทั้งหมด
-      const brands = await res.json();
-      brandSelect.innerHTML = brands
-        .map(
-          (b) =>
-            `<option value="${b.brand_id}" ${
-              b.brand_id == selectedId ? "selected" : ""
-            }>${b.brand_name}</option>`
-        )
-        .join("");
-    } catch (e) {
-      console.error("โหลด brand error:", e);
-      brandSelect.innerHTML = `<option value="">-- โหลดแบรนด์ไม่สำเร็จ --</option>`;
-    }
-  }
+      // เติมแบรนด์ถ้ามี endpoint
+      if (brandSelect) {
+        try {
+          const br = await fetch('/brand/read-all');
+          if (br.ok) {
+            const brands = await br.json();
+            brandSelect.innerHTML =
+              `<option value="">-- เลือกแบรนด์ --</option>` +
+              brands.map(b => `<option value="${b.brand_id}">${b.brand_name}</option>`).join('');
+          }
+        } catch { /* no-op */ }
+      }
 
-  // โหลดข้อมูล product
-  async function loadProduct() {
-    if (!id) return;
-    try {
       const res = await fetch(`/product/${id}`);
-      if (!res.ok) throw new Error("โหลดข้อมูลไม่สำเร็จ");
-      const data = await res.json();
+      if (!res.ok) throw new Error('โหลดรายละเอียดไม่สำเร็จ');
+      const d = await res.json();
 
-      document.getElementById("product_name").value = data.product_name || "";
-      document.getElementById("notify_no").value = data.notify_no || "";
-      document.getElementById("notify_date").value = data.notify_date || "";
-      document.getElementById("expire_date").value = data.expire_date || "";
+      // map ค่าให้ตรงฟอร์มนี้
+      const v = {
+        brand_id:     d.brand_id ?? '',
+        product_name: d.product_name ?? '',
+        notify_no:    d.product_fdanum ?? d.notify_no ?? '',
+        notify_date:  d.product_fdadate ?? d.notify_date ?? '',
+        expire_date:  d.product_exp ?? d.expire_date ?? '',
+        pic1:         d.product_picture1 ?? '',
+        pic2:         d.product_picture2 ?? '',
+        pic3:         d.product_picture3 ?? '',
+      };
 
-      await loadBrands(data.brand_id);
+      setVal(brandSelect, v.brand_id);
+      setVal(productName, v.product_name);
+      setVal(notifyNo,    v.notify_no);
+      setVal(notifyDate,  v.notify_date);
+      setVal(expireDate,  v.expire_date);
 
-      // แสดงรูปเก่า + เก็บค่าไว้ใน hidden input
-      if (data.product_picture1) {
-        document.getElementById("preview1").src = data.product_picture1;
-        document.getElementById("old_picture1").value = data.product_picture1;
-      }
-      if (data.product_picture2) {
-        document.getElementById("preview2").src = data.product_picture2;
-        document.getElementById("old_picture2").value = data.product_picture2;
-      }
-      if (data.product_picture3) {
-        document.getElementById("preview3").src = data.product_picture3;
-        document.getElementById("old_picture3").value = data.product_picture3;
-      }
+      // เซ็ตค่า hidden เป็น URL เดิม
+      setVal(old1, v.pic1);
+      setVal(old2, v.pic2);
+      setVal(old3, v.pic3);
+
+      // พรีวิว
+      setImg(preview1, v.pic1);
+      setImg(preview2, v.pic2);
+      setImg(preview3, v.pic3);
+
+      // เคลียร์ค่าไฟล์ (อนุญาตตั้งเป็นค่าว่าง)
+      if (file1) file1.value = '';
+      if (file2) file2.value = '';
+      if (file3) file3.value = '';
+    } catch (e) {
+      console.error('โหลดข้อมูล error:', e);
+      alert('โหลดข้อมูลไม่สำเร็จ');
+    }
+  })();
+
+  // ===== อัปโหลดไฟล์เมื่อเลือก แล้วอัปเดต hidden + พรีวิว =====
+  async function uploadAndBind(fileInput, hiddenInput, previewImg) {
+    if (!fileInput || !fileInput.files || fileInput.files.length === 0) return;
+    const file = fileInput.files[0];
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const up = await fetch('/upload', { method: 'POST', body: formData });
+      if (!up.ok) throw new Error('อัปโหลดไฟล์ไม่สำเร็จ');
+      const uploaded = await up.json();
+
+      const url = uploaded?.url || uploaded?.path || '';
+      if (!url) throw new Error('รูปแบบผลลัพธ์อัปโหลดไม่ถูกต้อง');
+      if (hiddenInput) hiddenInput.value = url;
+      setImg(previewImg, url);
     } catch (err) {
-      console.error("โหลด product error:", err);
-      alert("เกิดข้อผิดพลาดในการโหลดข้อมูล");
-      window.location.href = "/product/index.html";
+      console.error('อัปโหลดรูปผิดพลาด:', err);
+      alert('อัปโหลดรูปไม่สำเร็จ');
+      if (fileInput) fileInput.value = ''; // reset เพื่อเลือกใหม่
     }
   }
 
-  // preview image ทันทีที่เลือกไฟล์ใหม่
-  ["product_picture1", "product_picture2", "product_picture3"].forEach(
-    (field, idx) => {
-      document.getElementById(field).addEventListener("change", (e) => {
-        const file = e.target.files[0];
-        if (file) {
-          const reader = new FileReader();
-          reader.onload = (ev) => {
-            document.getElementById(`preview${idx + 1}`).src = ev.target.result;
-          };
-          reader.readAsDataURL(file);
-        }
-      });
-    }
-  );
+  if (file1) file1.addEventListener('change', () => uploadAndBind(file1, old1, preview1));
+  if (file2) file2.addEventListener('change', () => uploadAndBind(file2, old2, preview2));
+  if (file3) file3.addEventListener('change', () => uploadAndBind(file3, old3, preview3));
 
-  // submit form
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
+  // ===== บันทึก (PATCH JSON) =====
+  if (form) {
+    form.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
 
-    const formData = new FormData(form);
+      // สร้าง payload ให้ตรงแบ็กเอนด์
+      const payload = {
+        brand_id:        brandSelect ? (brandSelect.value || null) : null,
+        product_name:    productName ? (productName.value || null) : null,
+        product_fdanum:  notifyNo    ? (notifyNo.value || null)    : null,
+        product_fdadate: notifyDate  ? (notifyDate.value || null)  : null,
+        product_exp:     expireDate  ? (expireDate.value || null)  : null,
+        // ส่ง URL รูปจาก hidden (ไม่ใช่ไฟล์)
+        product_picture1: old1 ? (old1.value || null) : null,
+        product_picture2: old2 ? (old2.value || null) : null,
+        product_picture3: old3 ? (old3.value || null) : null,
+      };
 
-    const url = id ? `/product/${id}` : "/product/create";
-    const method = id ? "PUT" : "POST";
+      try {
+        const res = await fetch(`/product/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const out = await res.json();
+        if (!res.ok) throw new Error(out?.message || 'บันทึกไม่สำเร็จ');
 
-    try {
-      const res = await fetch(url, {
-        method,
-        body: formData,
-      });
-
-      if (!res.ok) throw new Error("บันทึกไม่สำเร็จ");
-      alert("บันทึกสำเร็จ");
-      window.location.href = "/product/index.html";
-    } catch (err) {
-      console.error("บันทึก error:", err);
-      alert("เกิดข้อผิดพลาดในการบันทึก");
-    }
-  });
-
-  // โหลดข้อมูลเริ่มต้น
-  if (id) {
-    await loadProduct();
-  } else {
-    await loadBrands(null);
+        alert(out.message || 'บันทึกสำเร็จ');
+        // location.href = '/product/index.html';
+      } catch (e) {
+        console.error('บันทึก error:', e);
+        alert('บันทึกไม่สำเร็จ');
+      }
+    });
   }
 });
