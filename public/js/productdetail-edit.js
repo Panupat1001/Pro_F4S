@@ -1,6 +1,6 @@
-// public/js/productdetail-edit.js
+// /public/js/productdetail-edit.js
 document.addEventListener("DOMContentLoaded", () => {
-  // ----- รับ draft จาก sessionStorage -----
+  // ===== รับ draft จาก sessionStorage =====
   const draftStr = sessionStorage.getItem("productdetailDraft");
   if (!draftStr) {
     alert("ไม่พบข้อมูลร่าง กรุณาเริ่มจากหน้าก่อนหน้า");
@@ -9,20 +9,22 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   const draft = JSON.parse(draftStr);
 
-  // ----- DOM -----
-  const pName = document.getElementById("p_name");
-  const pCode = document.getElementById("p_code");
+  // ===== DOM =====
+  const pName   = document.getElementById("p_name");
+  const pCode   = document.getElementById("p_code");
   const pStatus = document.getElementById("p_status");
-  const pBrand = document.getElementById("p_brand");
+  const pBrand  = document.getElementById("p_brand");
   const pNotify = document.getElementById("p_notify");
 
-  const chemSelectEl = document.getElementById("chem_id");
-  const percentInput = document.getElementById("chem_percent");
-  const btnAdd = document.getElementById("btnAddChem");
-  const tbody = document.getElementById("chemTableBody");
-  const remainText = document.getElementById("remainText");
+  const chemSelectEl  = document.getElementById("chem_id");
+  const chemInfoBox   = document.getElementById("chem_info");
+  const percentInput  = document.getElementById("chem_percent");
+  const btnAdd        = document.getElementById("btnAddChem");
+  const tbody         = document.getElementById("chemTableBody");
+  const remainText    = document.getElementById("remainText");
+  const btnSave       = document.getElementById("btnSave");
 
-  // ----- แสดงหัวข้อสินค้า -----
+  // ===== แสดงหัวข้อสินค้า =====
   pName.value   = draft.product_name || "";
   pCode.value   = draft.product_code || draft.product_id || "";
   pStatus.value = draft.status ? "เสร็จสิ้น" : "ยังไม่เสร็จ";
@@ -30,79 +32,102 @@ document.addEventListener("DOMContentLoaded", () => {
   pNotify.textContent = draft.notify_text || "-";
   remainText.textContent = (draft.remain_percent ?? 100).toString();
 
-  // ตัวแปร TomSelect
+  // ===== ดรอปดาวค้นหาสารเคมี (Server-side search) =====
   let chemSelectTS = null;
 
-  // ----- โหลดรายการสารเคมี + เปิดค้นหาได้ -----
-  (async function loadChems() {
-    try {
-      const res = await fetch("/chem/read-all", { headers: { "Accept": "application/json" } });
-      if (!res.ok) {
-        throw new Error(`โหลดสารเคมีไม่สำเร็จ: ${res.status} ${res.statusText}`);
+  function renderChemInfo(selected) {
+    if (!selected) { chemInfoBox.innerHTML = ""; return; }
+    const inci = selected.inci_name ? ` (${selected.inci_name})` : "";
+    const unit = selected.chem_unit ? ` • หน่วย: ${selected.chem_unit}` : "";
+    const type = selected.chem_type ? ` • ชนิด: ${selected.chem_type}` : "";
+    chemInfoBox.innerHTML = `
+      <div class="alert alert-secondary py-2 mb-0">
+        <div><strong>${selected.chem_name || "-"}</strong>${inci}</div>
+        <div class="small text-muted">${unit}${type}</div>
+      </div>
+    `;
+  }
+
+(function initChemSearch() {
+  chemSelectEl.innerHTML = `<option value="">-- เลือกสารเคมี --</option>`;
+  if (chemSelectTS) { try { chemSelectTS.destroy(); } catch {} chemSelectTS = null; }
+
+  chemSelectTS = new TomSelect(chemSelectEl, {
+    valueField: "id",
+    labelField: "label",
+    searchField: ["label", "chem_name", "inci_name", "chem_unit", "chem_type"],
+    maxOptions: 200,
+    preload: true,                     // ✅ preload ตอนเปิดหน้า
+    allowEmptyOption: true,
+    plugins: ["dropdown_input","clear_button"],
+    placeholder: "พิมพ์ชื่อสารหรือ INCI เพื่อค้นหา…",
+    load: function (query, callback) {
+      // ถ้ายังไม่พิมพ์: preload จาก read-all
+      const url = (query && query.trim().length > 0)
+        ? `/chem/search?q=${encodeURIComponent(query)}&limit=50`
+        : `/chem/read-all?limit=200`;
+
+      fetch(url, { headers: { "Accept": "application/json" } })
+        .then(res => res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`)))
+        .then(list => {
+          const options = (list || []).map(c => ({
+            id: Number(c.id ?? c.chem_id),
+            chem_name: c.chem_name || "",
+            inci_name: c.inci_name || "",
+            chem_unit: c.chem_unit || "",
+            chem_type: c.chem_type || "",
+            label: `${c.chem_name || "-"}${c.inci_name ? " (" + c.inci_name + ")" : ""}`,
+          }));
+          callback(options);
+        })
+        .catch(err => { console.error("chem load error:", err); callback(); });
+    },
+    render: {
+      option(data, escape) {
+        return `
+          <div>
+            <div class="fw-semibold">${escape(data.chem_name || "-")}</div>
+            <div class="small text-muted">
+              ${data.inci_name ? escape(data.inci_name) + " · " : ""}${data.chem_unit ? "หน่วย: " + escape(data.chem_unit) + " · " : ""}${data.chem_type ? "ชนิด: " + escape(data.chem_type) : ""}
+            </div>
+          </div>
+        `;
+      },
+      item(data, escape) {
+        return `<div>${escape(data.chem_name || data.label)}</div>`;
       }
-
-      // บางครั้ง backend ส่ง html error กลับมา ให้กันไว้
-      const text = await res.text();
-      let items;
-      try {
-        items = JSON.parse(text);
-      } catch {
-        throw new Error("ข้อมูลสารเคมีที่ได้มาไม่ใช่ JSON");
-      }
-
-      // map เป็นโครงสร้างของ Tom Select
-      // สมมติว่า /chem/read-all คืนค่า [{ id, chem_name, inci_name, cas_no }, ...]
-      const options = (items || []).map(c => ({
-        id: Number(c.id),
-        chem_name: c.chem_name || "",
-        inci_name: c.inci_name || "",
-        cas_no: c.cas_no || "",
-        // label ใช้แสดงผลในดรอปดาว
-        label: `${c.chem_name || "-"}${c.inci_name ? " (" + c.inci_name + ")" : ""}${c.cas_no ? " • CAS: " + c.cas_no : ""}`
-      }));
-
-      // เคลียร์ option เดิมสำหรับ fallback
-      chemSelectEl.innerHTML = `<option value="">-- เลือกสารเคมี --</option>`;
-
-      // สร้าง Tom Select ให้ค้นหาได้
-      chemSelectTS = new TomSelect(chemSelectEl, {
-        // ใช้ข้อมูลที่เตรียมไว้
-        options,
-        valueField: "id",
-        labelField: "label",
-        searchField: ["label", "chem_name", "inci_name", "cas_no"],
-        maxOptions: 1000,
-        preload: true,
-        allowEmptyOption: true,
-        // UX เสริม
-        plugins: ["dropdown_input", "clear_button"],
-        placeholder: "พิมพ์เพื่อค้นหา…",
-        sortField: [{ field: "chem_name", direction: "asc" }],
-        render: {
-          option(data, escape) {
-            return `
-              <div>
-                <div class="fw-semibold">${escape(data.chem_name || "-")}</div>
-                <div class="small text-muted">
-                  ${data.inci_name ? escape(data.inci_name) + " · " : ""}${data.cas_no ? "CAS: " + escape(data.cas_no) : ""}
-                </div>
-              </div>
-            `;
-          },
-          item(data, escape) {
-            return `<div>${escape(data.chem_name || data.label)}</div>`;
-          }
-        }
-      });
-    } catch (e) {
-      console.error("โหลดสารเคมี error:", e);
-      // fallback เป็น select ปกติ (พิมพ์หาไม่ได้)
-      // ผู้ใช้ยังคงเพิ่มสารได้หาก backend ใช้งานได้ แต่จะแสดง option เปล่าไว้ก่อน
-      chemSelectEl.innerHTML = `<option value="">-- โหลดสารเคมีไม่สำเร็จ --</option>`;
+    },
+    onChange: (value) => {
+      const id = Number(value || 0);
+      const raw = id ? chemSelectTS?.options?.[id] : null;
+      renderChemInfo(raw || null);
     }
-  })();
+  });
 
-  // ----- ฟังก์ชันช่วย -----
+  // ถ้าต้องการ preset จาก data-current-id (ตอนแก้ไข)
+  const currentId = Number(chemSelectEl.getAttribute("data-current-id") || 0);
+  if (currentId) {
+    fetch(`/chem/detail?id=${currentId}`, { headers: { "Accept": "application/json" } })
+      .then(res => res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`)))
+      .then(c => {
+        const option = {
+          id: Number(c.id ?? c.chem_id),
+          chem_name: c.chem_name || "",
+          inci_name: c.inci_name || "",
+          chem_unit: c.chem_unit || "",
+          chem_type: c.chem_type || "",
+          label: `${c.chem_name || "-"}${c.inci_name ? " (" + c.inci_name + ")" : ""}`
+        };
+        chemSelectTS.addOption(option);
+        chemSelectTS.setValue(String(option.id));
+        renderChemInfo(option);
+      })
+      .catch(e => console.warn("preset chem error:", e));
+  }
+})();
+
+
+  // ===== ฟังก์ชันช่วยคำนวณ/แสดงผล =====
   function sumPercent() {
     return (draft.chems || []).reduce((s, x) => s + Number(x.chem_percent || 0), 0);
   }
@@ -133,9 +158,8 @@ document.addEventListener("DOMContentLoaded", () => {
     sessionStorage.setItem("productdetailDraft", JSON.stringify(draft));
   }
 
-  // ----- เพิ่มรายการสาร -----
+  // ===== เพิ่มรายการสาร =====
   btnAdd.addEventListener("click", () => {
-    // อ่านค่า chem_id จาก Tom Select (ถ้ามี) หรือจาก select ปกติ
     let chem_id = 0, chem_name = "";
     if (chemSelectTS) {
       const val = chemSelectTS.getValue();
@@ -166,11 +190,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
     percentInput.value = "";
     if (chemSelectTS) chemSelectTS.clear(); else chemSelectEl.value = "";
-
+    renderChemInfo(null);
     renderTable();
   });
 
-  // ----- ลบรายการสาร -----
+  // ===== ลบรายการสาร =====
   tbody.addEventListener("click", (e) => {
     const btn = e.target.closest("button[data-idx]");
     if (!btn) return;
@@ -179,85 +203,72 @@ document.addEventListener("DOMContentLoaded", () => {
     renderTable();
   });
 
-  // ----- เริ่มต้น -----
-  renderTable();
-});
+  // ===== บันทึกลงฐานข้อมูล =====
+  function isTotalHundred() {
+    const sum = sumPercent();
+    return Math.abs(sum - 100) <= 1e-6;
+  }
 
-// ===== เพิ่มท้ายไฟล์ productdetail-edit.js =====
+  async function saveProductDetailDraft() {
+    const latestStr = sessionStorage.getItem("productdetailDraft");
+    if (!latestStr) throw new Error("ไม่พบข้อมูลร่างใน sessionStorage");
+    const latest = JSON.parse(latestStr);
 
-// ตรวจ sum = 100% ไหม (อนุโลมส่วนเกินนิดหน่อย)
-function isTotalHundred() {
-  const sum = sumPercent();
-  return Math.abs(sum - 100) <= 1e-6;
-}
+    const product_id = latest.product_id || latest.productId || latest.p_id;
+    if (!product_id) throw new Error("ไม่พบ product_id ในร่างข้อมูล");
 
-// เรียกบันทึกไปหลังบ้าน
-async function saveProductDetailDraft() {
-  // โหลด draft จาก sessionStorage อีกรอบเพื่อให้เป็นค่าล่าสุด
-  const draftStr = sessionStorage.getItem("productdetailDraft");
-  if (!draftStr) throw new Error("ไม่พบข้อมูลร่างใน sessionStorage");
-  const draft = JSON.parse(draftStr);
+    const chems = Array.isArray(latest.chems) ? latest.chems : [];
+    if (chems.length === 0) throw new Error("กรุณาเพิ่มรายการสารเคมีก่อนบันทึก");
 
-  const product_id = draft.product_id || draft.productId || draft.p_id;
-  if (!product_id) throw new Error("ไม่พบ product_id ในร่างข้อมูล");
+    const payload = {
+      product_id: Number(product_id),
+      chems: chems.map(x => ({
+        chem_id: Number(x.chem_id),
+        chem_percent: Number(x.chem_percent)
+      })),
+      productdetail_status: 1
+    };
 
-  const chems = Array.isArray(draft.chems) ? draft.chems : [];
-  if (chems.length === 0) throw new Error("กรุณาเพิ่มรายการสารเคมีก่อนบันทึก");
+    const res = await fetch("/productdetail/save-chems", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      body: JSON.stringify(payload)
+    });
 
-  // (ถ้าต้องการบังคับรวม = 100% ให้เปิดคอมเมนต์ด้านล่าง)
-  // if (!isTotalHundred()) throw new Error("เปอร์เซ็นต์รวมต้องเท่ากับ 100%");
+    if (!res.ok) {
+      let msg = `บันทึกไม่สำเร็จ (${res.status})`;
+      try {
+        const j = await res.json();
+        if (j?.message) msg = j.message;
+      } catch {}
+      throw new Error(msg);
+    }
+    return await res.json(); // { success:true, affected:n }
+  }
 
-  const payload = {
-    product_id: Number(product_id),
-    chems: chems.map(x => ({
-      chem_id: Number(x.chem_id),
-      chem_percent: Number(x.chem_percent)
-    }))
-  };
+  btnSave?.addEventListener("click", async () => {
+    try {
+      const total = sumPercent();
+      if (total > 100 + 1e-9) {
+        alert("เปอร์เซ็นต์รวมเกิน 100% กรุณาปรับให้ไม่เกิน 100");
+        return;
+      }
+      const confirmMsg = isTotalHundred()
+        ? "ยืนยันบันทึกรายการสารเคมี?"
+        : `ยืนยันบันทึก? (เปอร์เซ็นต์รวมปัจจุบัน = ${total}%)`;
+      if (!confirm(confirmMsg)) return;
 
-  const res = await fetch("/productdetail/save-chems", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Accept": "application/json" },
-    body: JSON.stringify(payload)
+      const result = await saveProductDetailDraft();
+      alert("บันทึกสำเร็จ");
+      // ถ้าต้องการล้าง draft:
+      // sessionStorage.removeItem("productdetailDraft");
+      location.href = "/productdetail/index.html";
+    } catch (err) {
+      console.error("บันทึก error:", err);
+      alert(err.message || "บันทึกไม่สำเร็จ");
+    }
   });
 
-  if (!res.ok) {
-    let msg = `บันทึกไม่สำเร็จ (${res.status})`;
-    try {
-      const j = await res.json();
-      if (j?.message) msg = j.message;
-    } catch {}
-    throw new Error(msg);
-  }
-  return await res.json(); // { success:true, affected:n }
-}
-
-// ผูกปุ่มบันทึก
-document.getElementById("btnSave")?.addEventListener("click", async () => {
-  try {
-    // ตรวจรวมเปอร์เซ็นต์ล่วงหน้า (แสดงเตือน แต่ยังให้ไปต่อได้)
-    const total = sumPercent();
-    if (total > 100 + 1e-9) {
-      alert("เปอร์เซ็นต์รวมเกิน 100% กรุณาปรับให้ไม่เกิน 100");
-      return;
-    }
-
-    const confirmMsg = isTotalHundred()
-      ? "ยืนยันบันทึกรายการสารเคมี?"
-      : `ยืนยันบันทึก? (เปอร์เซ็นต์รวมปัจจุบัน = ${total}%)`;
-    if (!confirm(confirmMsg)) return;
-
-    // call API
-    const result = await saveProductDetailDraft();
-
-    // ล้าง draft ถ้าต้องการ
-    // sessionStorage.removeItem("productdetailDraft");
-
-    alert("บันทึกสำเร็จ");
-    // กลับหน้า index หรือหน้า detail ตามต้องการ
-    location.href = "/productdetail/index.html";
-  } catch (err) {
-    console.error("บันทึก error:", err);
-    alert(err.message || "บันทึกไม่สำเร็จ");
-  }
+  // ===== เริ่มต้น =====
+  renderTable();
 });

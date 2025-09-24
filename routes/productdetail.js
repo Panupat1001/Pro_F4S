@@ -143,4 +143,97 @@ router.post("/save-chems", (req, res) => {
   });
 });
 
+
+// GET /productdetail/list
+// query: page, pageSize, q, sortField, sortOrder
+router.get('/list', (req, res) => {
+  const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+  const pageSize = Math.min(Math.max(parseInt(req.query.pageSize, 10) || 10, 1), 100);
+  const q = (req.query.q || '').trim();
+  const sortFieldInput = (req.query.sortField || 'product_name').toLowerCase();
+  const sortOrder = (req.query.sortOrder || 'asc').toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
+
+  // ฟิลด์ที่อนุญาตให้เรียง (กลุ่มตาม product)
+  const sortable = {
+    product_name: 'product_name',
+    product_id: 'product_id',
+    brand_name: 'brand_name',
+    productdetail_status: 'productdetail_status',     // สถานะที่คำนวณ
+    // total_percent: 'total_percent',                // ถ้าอยากให้เรียงตามเปอร์เซ็นต์รวม เปิดใช้ได้
+  };
+  const orderBy = sortable[sortFieldInput] || 'product_name';
+
+  const offset = (page - 1) * pageSize;
+  const params = [];
+  let where = '';
+
+  if (q) {
+    where = `WHERE (p.product_name LIKE ? OR b.brand_name LIKE ? OR CAST(p.product_id AS CHAR) LIKE ?)`;
+    const like = `%${q}%`;
+    params.push(like, like, like);
+  }
+
+  // กลุ่มต่อ product_id แล้วคำนวณผลรวมเปอร์เซ็นต์ → สถานะ
+  const grouped = `
+    SELECT
+      p.product_id,
+      p.product_name,
+      COALESCE(b.brand_name, '') AS brand_name,
+      SUM(pd.chem_percent) AS total_percent,
+      CASE
+        WHEN ABS(SUM(pd.chem_percent) - 100) < 0.000001 THEN 'เสร็จสิ้น'
+        ELSE 'ยังไม่เสร็จ'
+      END AS productdetail_status
+    FROM productdetail pd
+    JOIN product p ON p.product_id = pd.product_id
+    LEFT JOIN brand b ON b.brand_id = p.brand_id
+    ${where}
+    GROUP BY p.product_id, p.product_name, b.brand_name
+  `;
+
+  // นับจำนวนสินค้าที่ผ่านเงื่อนไข (นับจากกลุ่ม)
+  const sqlCount = `
+    SELECT COUNT(*) AS total
+    FROM (
+      SELECT p.product_id
+      FROM productdetail pd
+      JOIN product p ON p.product_id = pd.product_id
+      LEFT JOIN brand b ON b.brand_id = p.brand_id
+      ${where}
+      GROUP BY p.product_id
+    ) x
+  `;
+
+  // ดึงข้อมูลหน้าปัจจุบัน
+  const sqlData = `
+    SELECT *
+    FROM (${grouped}) t
+    ORDER BY ${orderBy} ${sortOrder}
+    LIMIT ? OFFSET ?
+  `;
+
+  connection.query(sqlCount, params, (errCount, countRows) => {
+    if (errCount) {
+      console.error('Count failed:', errCount);
+      return res.status(500).json({ message: 'Count failed' });
+    }
+
+    const total = countRows?.[0]?.total ?? 0;
+    connection.query(sqlData, [...params, pageSize, offset], (errData, rows) => {
+      if (errData) {
+        console.error('Query failed:', errData);
+        return res.status(500).json({ message: 'Query failed' });
+      }
+
+      res.json({
+        page,
+        pageSize,
+        total,
+        items: rows || []
+      });
+    });
+  });
+});
+
+
 module.exports = router;

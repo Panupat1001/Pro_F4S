@@ -108,4 +108,34 @@ router.get('/read-all', (req, res) => {
   });
 });
 
+// GET /chem/search?q=คำค้น&limit=50
+router.get('/search', (req, res) => {
+  const q = (req.query.q || '').trim();
+  const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
+
+  if (!q) return res.json([]); // ไม่มีคำค้น → คืนลิสต์ว่าง
+
+  const like = `%${q}%`;
+  const sql = `
+    SELECT
+      chem_id   AS id,
+      chem_name,
+      inci_name,
+      chem_unit,
+      chem_type
+    FROM chem
+    WHERE chem_name LIKE ? OR inci_name LIKE ? OR chem_type LIKE ?
+    ORDER BY chem_name ASC
+    LIMIT ?
+  `;
+  connection.query(sql, [like, like, like, limit], (err, rows) => {
+    if (err) {
+      console.error('search chem error:', err);
+      return res.status(500).json({ message: 'search chem failed' });
+    }
+    res.json(rows || []);
+  });
+});
+
+
 module.exports = router;
