@@ -1,0 +1,57 @@
+<!-- public/login/login.html -->
+<!DOCTYPE html>
+<html lang="th">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Food 4 Skin – เข้าสู่ระบบ</title>
+    <link rel="stylesheet" href="./login.css" />
+  </head>
+  <body>
+    <main class="page">
+      <section class="container">
+        <div class="hero">
+          <h1 class="hero-title">Food <span class="accent">4</span> Skin</h1>
+          <p class="hero-sub">เว็บแอปพลิเคชันคำนวณต้นทุนของสารเคมี</p>
+        </div>
+
+        <form
+          class="card"
+          action="#"
+          method="post"
+          onsubmit="event.preventDefault(); login();"
+        >
+          <h2>เข้าสู่ระบบ</h2>
+
+          <label for="email">อีเมล</label>
+          <input
+            id="email"
+            name="email"
+            type="email"
+            placeholder="อีเมล"
+            required
+          />
+
+          <label for="password">รหัสผ่าน</label>
+          <input
+            id="password"
+            name="password"
+            type="password"
+            placeholder="รหัสผ่าน"
+            required
+          />
+
+          <button class="btn" type="submit">เข้าสู่ระบบ</button>
+
+          <div class="links">
+            <a href="#">ลืมรหัสผ่าน</a>
+            <a href="#">เปลี่ยนรหัสผ่าน</a>
+          </div>
+        </form>
+      </section>
+    </main>
+
+    <!-- โหลดไฟล์ JS ฝั่ง client ที่ถูกต้อง: อยู่ที่ public/js/login-login.js -->
+    <script src="../js/login-login.js" defer></script>
+  </body>
+</html>

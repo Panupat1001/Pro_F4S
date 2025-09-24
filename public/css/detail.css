@@ -1,0 +1,33 @@
+/* การ์ดหลัก */
+.chem-card {
+  max-width: 1000px;
+  border-radius: 12px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08);
+}
+
+/* ป้ายกำกับให้ชัด */
+label {
+  font-weight: 600;
+  margin-bottom: 4px;
+  display: block;
+}
+
+/* input/textarea แบบ readonly ดูต่างออก */
+.form-control[readonly] {
+  background-color: #f8f9fa;
+  color: #212529;
+}
+
+/* ความสูงขั้นต่ำ */
+#chem_name,
+#inci_name {
+  min-height: 56px;
+}
+
+#chem_note {
+  min-height: 120px;
+}
+
+.text-brand-green {
+  color: #00d312 !important;
+}

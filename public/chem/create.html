@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="th">
+  <head>
+    <meta charset="UTF-8" />
+    <title>เพิ่มสารเคมี</title>
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/index.css" />
+
+    <!-- Bootstrap CSS -->
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+    />
+    <!-- Bootstrap Icons -->
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css"
+    />
+  </head>
+  <body>
+    <div id="site-header"></div>
+    <script src="/js/include-header.js"></script>
+
+    <main class="container mt-4">
+      <div class="card p-4 mx-auto" style="max-width: 980px">
+        <h4 class="mb-3">เพิ่มสารเคมี</h4>
+
+        <form id="chemForm">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">ชื่อทางการค้า</label>
+              <input
+                id="chem_name"
+                name="chem_name"
+                class="form-control"
+                placeholder="ชื่อการค้า…"
+                required
+              />
+            </div>
+
+            <div class="col-md-6">
+              <label class="form-label">ชื่อสากล (INCI Name)</label>
+              <textarea
+                id="inci_name"
+                name="inci_name"
+                class="form-control"
+                rows="1"
+                required
+              ></textarea>
+            </div>
+
+            <div class="col-md-4">
+              <label for="chem_unit" class="form-label">หน่วยวัดของสาร</label>
+              <select
+                id="chem_unit"
+                name="chem_unit"
+                class="form-select"
+                required
+              >
+                <option value="g">กรัม</option>
+              </select>
+            </div>
+
+            <div class="col-md-4">
+              <label for="chem_type" class="form-label">ประเภทของสาร</label>
+              <select
+                id="chem_type"
+                name="chem_type"
+                class="form-select"
+                required
+              >
+                <option value="ของเหลว">ของเหลว</option>
+                <option value="ของแข็ง">ของแข็ง</option>
+              </select>
+            </div>
+
+            <div class="col-md-4">
+              <label class="form-label">ราคาต่อกรัม (บาท)</label>
+              <input
+                id="price_gram"
+                name="price_gram"
+                type="number"
+                min="0"
+                step="0.01"
+                class="form-control"
+                value="0"
+                readonly
+              />
+            </div>
+
+            <div class="col-md-6">
+              <label class="form-label">ปริมาณคงเหลือ (กรัม)</label>
+              <input
+                id="chem_quantity"
+                name="chem_quantity"
+                type="number"
+                min="0"
+                step="0.01"
+                class="form-control"
+                value="0"
+                required
+              />
+            </div>
+
+            <div class="col-md-6">
+              <label class="form-label">ปริมาณขั้นต่ำ (กรัม)</label>
+              <input
+                id="chem_reorder"
+                name="chem_reorder"
+                type="number"
+                min="0"
+                step="0.01"
+                class="form-control"
+                value="0"
+                required
+              />
+            </div>
+
+            <div class="col-12">
+              <label for="chem_note" class="form-label">หมายเหตุ</label>
+              <textarea
+                id="chem_note"
+                name="chem_note"
+                class="form-control"
+                rows="4"
+                placeholder="ใส่รายละเอียดเพิ่มเติม…"
+              ></textarea>
+            </div>
+          </div>
+
+          <div class="mt-4 d-flex gap-2">
+            <a class="btn btn-secondary" href="/chem/index.html">ยกเลิก</a>
+            <button type="submit" id="btnSave" class="btn btn-success">
+              <i class="bi bi-save"></i> บันทึก
+            </button>
+          </div>
+        </form>
+
+        <div id="alertBox" class="alert mt-3 d-none" role="alert"></div>
+      </div>
+    </main>
+
+    <!-- Modal ยืนยัน -->
+    <div class="modal fade" id="confirmModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">ยืนยันการบันทึก</h5>
+            <button
+              type="button"
+              class="btn-close"
+              data-bs-dismiss="modal"
+              aria-label="ปิด"
+            ></button>
+          </div>
+          <div class="modal-body">ต้องการบันทึกข้อมูลสารเคมีนี้ใช่หรือไม่?</div>
+          <div class="modal-footer">
+            <button
+              type="button"
+              class="btn btn-secondary"
+              data-bs-dismiss="modal"
+            >
+              ยกเลิก
+            </button>
+            <button type="button" id="confirmSave" class="btn btn-success">
+              ยืนยัน
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bootstrap JS (ต้องอยู่ก่อนสคริปต์ของเรา) -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- สคริปต์หลักของหน้า Create -->
+    <script src="/js/chem-create.js"></script>
+    <script src="/js/navbar.js"></script>
+  </body>
+</html>

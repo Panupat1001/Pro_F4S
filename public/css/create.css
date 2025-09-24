@@ -1,0 +1,124 @@
+:root{
+  --bg:#f0f0f0;
+  --card:#e5e5e5;
+  --text:#111827;
+  --muted:#6b7280;
+  --border:#d1d5db;
+  --primary:#00d312;          /* amber-400 */
+  --primary-text:#7c5b00;
+  --radius:14px;
+  --shadow:0 10px 24px rgba(0,0,0,.08);
+  --field-bg:#fff;
+}
+
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Inter, "Noto Sans Thai", sans-serif;
+  color:var(--text);
+  background:var(--bg);
+}
+
+/* Topbar */
+.topbar{
+  display:grid;
+  grid-template-columns: 48px 1fr 48px;
+  align-items:center;
+  gap:8px;
+  padding:10px 16px;
+  background:#ddd;
+}
+.topbar h1{
+  margin:0;
+  text-align:center;
+  font-size:24px;
+  font-weight:700;
+}
+.icon-btn{
+  height:36px;width:36px;
+  display:grid;place-items:center;
+  border-radius:10px;border:1px solid #cfcfcf;background:#eee;cursor:pointer;
+}
+
+/* Layout */
+.page{padding:24px}
+.card{
+  background:var(--card);
+  border-radius:var(--radius);
+  box-shadow:var(--shadow);
+  padding:24px;
+}
+
+/* Form grid */
+.grid{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap:24px;
+}
+.col{display:grid; gap:14px;}
+.col-full{grid-column:1/-1}
+.row-3{display:grid; grid-template-columns: 1fr 1fr 1fr; gap:14px}
+.row-2{display:grid; grid-template-columns: 1fr 1fr; gap:14px}
+
+label{font-weight:700; font-size:14px; display:grid; gap:6px}
+input, textarea, select{
+  width:100%;
+  background:var(--field-bg);
+  border:1px solid var(--border);
+  border-radius:10px;
+  padding:10px 12px;
+  font:inherit;
+}
+textarea{resize:vertical}
+
+/* Fake select wrapper (ให้คล้ายภาพ) */
+.select-wrap{
+  background:#f3f4f6;
+  border-radius:10px;
+  border:1px solid var(--border);
+  padding:2px;
+}
+.select-wrap select{
+  border:0;
+  background:transparent;
+  padding:8px 10px;
+}
+
+/* Actions */
+.actions{
+  grid-column:1/-1;
+  display:flex;
+  gap:16px;
+  justify-content:center;
+  margin-top:8px;
+}
+.btn{
+  padding:10px 22px;
+  border-radius:12px;
+  border:1px solid #111;
+  background:#fff;
+  cursor:pointer;
+  text-decoration:none;
+  color:#111;
+  min-width:120px;
+  text-align:center;
+  font-weight:600;
+}
+.btn.primary{
+  border:0;
+  background:var(--primary);
+  color:var(--primary-text);
+  box-shadow: inset 0 -2px 0 rgba(0,0,0,.1);
+}
+
+.text-brand-green {
+  color: #00d312 !important;
+}
+
+
+
+@media (max-width: 960px){
+  .grid{grid-template-columns:1fr}
+  .row-3, .row-2{grid-template-columns:1fr}
+}

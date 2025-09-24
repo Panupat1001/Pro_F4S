@@ -1,0 +1,120 @@
+body {
+  font-family: system-ui, sans-serif;
+  margin: 0;
+  background: #f5f5f5;
+}
+
+header {
+  background: #ddd;
+  padding: 0;
+  text-align: center;
+  font-size: 20px;
+  font-weight: bold;
+}
+
+.FS {
+  color:#ffffff; 
+  padding: 0;
+  text-align: center;
+  font-size: 50px;
+  font-weight: bold;
+}
+
+.four {
+  color:#00d312; 
+  padding: 0;
+  text-align: center;
+  font-size: 50px;
+  font-weight: bold;
+}
+
+
+.headerindex {
+  color:#ffffff; 
+  padding: 0;
+  text-align: center;
+  font-size: 30px;
+  font-weight: bold;
+}
+
+.toolbar {
+  display: flex;
+  justify-content: center;
+  padding: 12px;
+  gap: 8px;
+  background: #fff;
+}
+
+.toolbar input {
+  padding: 6px 8px;
+  font-size: 14px;
+  width: 240px;
+}
+
+.toolbar button {
+  padding: 6px 12px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 8px;
+}
+
+th, td {
+  padding: 8px;
+  border: 1px solid #ccc;
+  text-align: left;
+  font-size: 14px;
+}
+
+table.table.table-bordered thead th {
+  background-color: #ccc;
+  color: #000;
+}
+
+
+tbody tr:nth-child(even) {
+  background: #fafafa;
+}
+
+.action-btn {
+  display: flex;
+  gap: 6px;
+}
+
+.btn-icon {
+  border: none;
+  padding: 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #fff;
+}
+
+.icon-btn {
+  color: #000;   /* สีดำ */
+  text-decoration: none; /* เอาขีดเส้นใต้ของ <a> ออก */
+  margin-left: 12px;
+}
+
+.btn-brand-detail {
+  background-color: #00d312;
+  border-color: #00d312;
+  color: #fff;
+}
+.btn-brand-detail:hover {
+  background-color: #00b90f;
+  border-color: #00b90f;
+  color: #fff;
+}
+
+.text-brand-green {
+  color: #00d312 !important;
+}
+
+
+
+.btn-view { background: #00d312; } /* amber */
+.btn-edit { background: #374151; } /* gray-800 */

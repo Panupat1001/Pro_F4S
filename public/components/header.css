@@ -1,0 +1,5 @@
+.nav-link.active {
+  background-color: #00d312; /* Bootstrap success green */
+  color: white !important;
+  border-radius: 0.25rem; /* ให้ดูเหมือนปุ่ม */
+}
