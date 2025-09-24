@@ -29,6 +29,13 @@ document.addEventListener('DOMContentLoaded', () => {
   const preview2 = document.getElementById('preview2');
   const preview3 = document.getElementById('preview3');
 
+  // Bootstrap confirm modal (ถ้ามีในหน้า)
+  const confirmModalEl = document.getElementById('confirmModal');
+  const confirmBtn     = document.getElementById('confirmSave');
+  const confirmModal = (typeof bootstrap !== 'undefined' && confirmModalEl)
+    ? new bootstrap.Modal(confirmModalEl)
+    : null;
+
   // helpers
   const setVal = (el, v) => { if (el) el.value = v ?? ''; };
   const setImg = (img, url) => { if (img) img.src = url || ''; };
@@ -39,7 +46,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // เติมแบรนด์ถ้ามี endpoint
       if (brandSelect) {
         try {
-          const br = await fetch('/brand/read-all');
+          const br = await fetch('/brand/read-all', { headers: { Accept: 'application/json' } });
           if (br.ok) {
             const brands = await br.json();
             brandSelect.innerHTML =
@@ -49,7 +56,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch { /* no-op */ }
       }
 
-      const res = await fetch(`/product/${id}`);
+      const res = await fetch(`/product/${id}`, { headers: { Accept: 'application/json' } });
       if (!res.ok) throw new Error('โหลดรายละเอียดไม่สำเร็จ');
       const d = await res.json();
 
@@ -87,7 +94,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (file3) file3.value = '';
     } catch (e) {
       console.error('โหลดข้อมูล error:', e);
-      alert('โหลดข้อมูลไม่สำเร็จ');
+      showAlert('danger', 'โหลดข้อมูลไม่สำเร็จ');
     }
   })();
 
@@ -110,7 +117,7 @@ document.addEventListener('DOMContentLoaded', () => {
       setImg(previewImg, url);
     } catch (err) {
       console.error('อัปโหลดรูปผิดพลาด:', err);
-      alert('อัปโหลดรูปไม่สำเร็จ');
+      showAlert('danger', 'อัปโหลดรูปไม่สำเร็จ');
       if (fileInput) fileInput.value = ''; // reset เพื่อเลือกใหม่
     }
   }
@@ -119,39 +126,68 @@ document.addEventListener('DOMContentLoaded', () => {
   if (file2) file2.addEventListener('change', () => uploadAndBind(file2, old2, preview2));
   if (file3) file3.addEventListener('change', () => uploadAndBind(file3, old3, preview3));
 
-  // ===== บันทึก (PATCH JSON) =====
+  // ===== บันทึก (PATCH JSON) + ยืนยันก่อน =====
   if (form) {
     form.addEventListener('submit', async (ev) => {
       ev.preventDefault();
 
-      // สร้าง payload ให้ตรงแบ็กเอนด์
-      const payload = {
-        brand_id:        brandSelect ? (brandSelect.value || null) : null,
-        product_name:    productName ? (productName.value || null) : null,
-        product_fdanum:  notifyNo    ? (notifyNo.value || null)    : null,
-        product_fdadate: notifyDate  ? (notifyDate.value || null)  : null,
-        product_exp:     expireDate  ? (expireDate.value || null)  : null,
-        // ส่ง URL รูปจาก hidden (ไม่ใช่ไฟล์)
-        product_picture1: old1 ? (old1.value || null) : null,
-        product_picture2: old2 ? (old2.value || null) : null,
-        product_picture3: old3 ? (old3.value || null) : null,
-      };
-
-      try {
-        const res = await fetch(`/product/${id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-        const out = await res.json();
-        if (!res.ok) throw new Error(out?.message || 'บันทึกไม่สำเร็จ');
-
-        alert(out.message || 'บันทึกสำเร็จ');
-        // location.href = '/product/index.html';
-      } catch (e) {
-        console.error('บันทึก error:', e);
-        alert('บันทึกไม่สำเร็จ');
+      // ถ้ามี Bootstrap Modal ให้ใช้ยืนยันก่อน
+      if (confirmModal && confirmBtn) {
+        confirmModal.show();
+        confirmBtn.addEventListener('click', () => {
+          confirmModal.hide();
+          doSave();
+        }, { once: true });
+        return;
       }
+
+      // fallback: confirm ธรรมดา
+      const ok = confirm('คุณต้องการบันทึกการแก้ไขผลิตภัณฑ์นี้ใช่หรือไม่?');
+      if (ok) doSave();
     });
   }
+
+  async function doSave() {
+    const payload = {
+      brand_id:        brandSelect ? (brandSelect.value || null) : null,
+      product_name:    productName ? (productName.value || null) : null,
+      product_fdanum:  notifyNo    ? (notifyNo.value || null)    : null,
+      product_fdadate: notifyDate  ? (notifyDate.value || null)  : null,
+      product_exp:     expireDate  ? (expireDate.value || null)  : null,
+      // ส่ง URL รูปจาก hidden (ไม่ใช่ไฟล์)
+      product_picture1: old1 ? (old1.value || null) : null,
+      product_picture2: old2 ? (old2.value || null) : null,
+      product_picture3: old3 ? (old3.value || null) : null,
+    };
+
+    try {
+      const res = await fetch(`/product/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const out = await safeJson(res);
+      if (!res.ok) throw new Error(out?.message || 'บันทึกไม่สำเร็จ');
+
+      showAlert('success', out?.message || 'บันทึกสำเร็จ');
+      // redirect อัตโนมัติหลังบันทึก
+      setTimeout(() => { location.href = '/product/index.html'; }, 800);
+    } catch (e) {
+      console.error('บันทึก error:', e);
+      showAlert('danger', e.message || 'บันทึกไม่สำเร็จ');
+    }
+  }
+
+  async function safeJson(res) {
+    try { return await res.json(); } catch { return null; }
+  }
 });
+
+// ===== helper alert (Bootstrap) =====
+function showAlert(type, msg) {
+  const alertBox = document.getElementById('alertBox');
+  if (!alertBox) return alert(msg);
+  alertBox.className = `alert alert-${type}`;
+  alertBox.textContent = msg;
+  alertBox.classList.remove('d-none');
+}

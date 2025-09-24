@@ -86,66 +86,52 @@ document.addEventListener("DOMContentLoaded", () => {
     renderTablePage(fullData, 1);
   }
 
-  function renderTablePage(data, page = 1) {
-    const total = data.length;
+function renderTablePage(data, page = 1) {
+  const total = data.length;
 
-    // ❌ ไม่มีข้อมูล → ซ่อนทั้งตาราง + pagination แล้วจบ
-    if (total === 0) {
-      if (tableWrapper) tableWrapper.style.display = "none";
-      if (pager) pager.innerHTML = "";
-      tbody.innerHTML = ""; // ล้างแถวเดิม
-      return;
-    }
-
-    // ✅ มีข้อมูล → แสดงตาราง
-    if (tableWrapper) tableWrapper.style.display = "";
-
-    const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-    currentPage = Math.min(Math.max(1, page), totalPages);
-
-    const start = (currentPage - 1) * PAGE_SIZE;
-    const end = start + PAGE_SIZE;
-    const pageItems = data.slice(start, end);
-
-    let html = pageItems
-      .map(
-        (item) => `
-        <tr>
-          <td>${escape(item.chem_name)}</td>
-          <td>${escape(item.inci_name)}</td>
-          <td>${escape(item.chem_type)}</td>
-          <td>${escape(item.chem_quantity)}</td>
-          <td class="text-nowrap">
-            <a href="/chem/detail.html?id=${encodeURIComponent(item.chem_id)}"
-               class="btn btn-sm text-white"
-               style="background-color:#00d312; border-color:#00d312;"
-               title="ดูรายละเอียด">📋</a>
-            <a href="/chem/edit.html?id=${encodeURIComponent(item.chem_id)}"
-               class="btn btn-dark btn-sm btn-edit" data-id="${escape(item.chem_id)}" title="แก้ไขข้อมูล">
-               <i class="bi bi-pencil"></i>
-            </a>
-          </td>
-        </tr>`
-      )
-      .join("");
-
-    // เติมแถวเปล่าให้ครบ 12 แถวเสมอ (คงความสูงตาราง)
-    const blanks = PAGE_SIZE - pageItems.length;
-    if (blanks > 0) {
-      html += Array.from({ length: blanks })
-        .map(
-          () => `
-          <tr>
-            <td>&nbsp;</td><td></td><td></td><td></td><td></td>
-          </tr>`
-        )
-        .join("");
-    }
-
-    tbody.innerHTML = html;
-
-    if (pager) renderPagination(totalPages);
+  // ไม่มีข้อมูล → ซ่อนทั้งตาราง + pagination
+  if (total === 0) {
+    if (tableWrapper) tableWrapper.style.display = "none";
+    if (pager) pager.innerHTML = "";
+    tbody.innerHTML = "";
+    return;
   }
+
+  // มีข้อมูล → แสดงตาราง
+  if (tableWrapper) tableWrapper.style.display = "";
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  currentPage = Math.min(Math.max(1, page), totalPages);
+
+  const start = (currentPage - 1) * PAGE_SIZE;
+  const end = start + PAGE_SIZE;
+  const pageItems = data.slice(start, end);
+
+  // ✅ ลบส่วนเติมแถวเปล่าออกไป โชว์เฉพาะแถวที่มีจริง
+  const html = pageItems.map(item => `
+    <tr>
+      <td>${escape(item.chem_name)}</td>
+      <td>${escape(item.inci_name)}</td>
+      <td>${escape(item.chem_type)}</td>
+      <td>${escape(item.chem_quantity)}</td>
+      <td class="text-nowrap">
+        <a href="/chem/detail.html?id=${encodeURIComponent(item.chem_id)}"
+           class="btn btn-sm text-white"
+           style="background-color:#00d312; border-color:#00d312;"
+           title="ดูรายละเอียด">📋</a>
+        <a href="/chem/edit.html?id=${encodeURIComponent(item.chem_id)}"
+           class="btn btn-dark btn-sm btn-edit" data-id="${escape(item.chem_id)}" title="แก้ไขข้อมูล">
+           <i class="bi bi-pencil"></i>
+        </a>
+      </td>
+    </tr>
+  `).join("");
+
+  tbody.innerHTML = html;
+
+  if (pager) renderPagination(totalPages);
+}
+
 
   function renderPagination(totalPages) {
     if (!pager) return;

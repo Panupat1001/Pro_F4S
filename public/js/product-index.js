@@ -158,18 +158,12 @@ document.addEventListener("DOMContentLoaded", () => {
       )
       .join("");
 
-    // เติมแถวเปล่าให้ครบ PAGE_SIZE (รักษาความสูง)
-    const blanks = PAGE_SIZE - pageItems.length;
-    if (blanks > 0) {
-      html += Array.from({ length: blanks })
-        .map(() => `<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>`)
-        .join("");
-    }
 
-    tbody.innerHTML = html;
-    if (pager) renderPagination(totalPages);
-  }
+  // ✅ ไม่มีการเติมแถวเปล่าอีกแล้ว
+  tbody.innerHTML = html;
 
+  if (pager) renderPagination(totalPages);
+}
   function renderPagination(totalPages) {
     if (!pager) return;
     if (totalPages <= 1) {

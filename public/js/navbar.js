@@ -4,6 +4,7 @@
     { prefix: "/chem",  navRoot: "/chem"  },
     { prefix: "/brand", navRoot: "/brand" },
     { prefix: "/product", navRoot: "/product" },
+    { prefix: "/productdetail", navRoot: "/productdetail" },
     // เพิ่มได้ เช่น { prefix: "/orders", navRoot: "/orders" },
   ];
 
