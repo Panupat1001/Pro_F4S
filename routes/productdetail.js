@@ -91,57 +91,62 @@ router.get("/by-product/:productId", (req, res) => {
   });
 });
 
-// POST /productdetail/save-chems
-// body: { product_id: number, chems: [{ chem_id: number, chem_percent: number }], productdetail_status?: number }
-router.post("/save-chems", (req, res) => {
-  const { product_id, chems, productdetail_status } = req.body || {};
-  const statusValue = Number.isInteger(productdetail_status) ? productdetail_status : 1;
-
-  if (!Number.isInteger(product_id)) {
-    return res.status(400).json({ message: "Invalid product_id" });
-  }
-  if (!Array.isArray(chems) || chems.length === 0) {
-    return res.status(400).json({ message: "Empty chems" });
-  }
-  for (const c of chems) {
-    if (!Number.isInteger(c.chem_id) || isNaN(Number(c.chem_percent))) {
-      return res.status(400).json({ message: "Invalid chem item" });
-    }
+// routes/productdetail.js (ตัวอย่าง save-chems)
+router.post('/save-chems', (req, res) => {
+  const { product_id, chems } = req.body;
+  if (!product_id || !Array.isArray(chems) || chems.length === 0) {
+    return res.status(400).json({ message: 'invalid payload' });
   }
 
   connection.beginTransaction(err => {
-    if (err) return res.status(500).json({ message: "Begin transaction failed" });
+    if (err) return res.status(500).json({ message: err.message });
 
-    // 1) ลบของเก่าของสินค้านี้
-    const delSql = `DELETE FROM productdetail WHERE product_id = ?`;
-    connection.query(delSql, [product_id], (errDel) => {
-      if (errDel) {
-        return connection.rollback(() => res.status(500).json({ message: "Delete old chems failed" }));
-      }
+    // 1) ลบรายการเดิม
+    connection.query(
+      'DELETE FROM productdetail WHERE product_id = ?',
+      [product_id],
+      (err) => {
+        if (err) return rollback(err);
 
-      // 2) ใส่ของใหม่ทั้งหมด (bulk insert)
-      const values = chems.map(c => [product_id, c.chem_id, Number(c.chem_percent), statusValue]);
-      const insSql = `
-        INSERT INTO productdetail (product_id, chem_id, chem_percent, productdetail_status)
-        VALUES ?
-      `;
-      connection.query(insSql, [values], (errIns, insRes) => {
-        if (errIns) {
-          console.error("insert chems failed:", errIns);
-          return connection.rollback(() => res.status(500).json({ message: "Insert chems failed" }));
-        }
+        // 2) ใส่รายการใหม่
+        const values = chems.map(x => [product_id, x.chem_id, x.chem_percent, 0]); // ใส่สถานะชั่วคราว 0
+        connection.query(
+          'INSERT INTO productdetail (product_id, chem_id, chem_percent, productdetail_status) VALUES ?',
+          [values],
+          (err) => {
+            if (err) return rollback(err);
 
-        // 3) commit
-        connection.commit(errCommit => {
-          if (errCommit) {
-            return connection.rollback(() => res.status(500).json({ message: "Commit failed" }));
+            // 3) คำนวณผลรวมแล้วอัปเดตสถานะ (1 เมื่อรวม = 100 เป๊ะ, ไม่งั้น 0)
+            connection.query(
+              `UPDATE productdetail pd
+               JOIN (
+                 SELECT product_id, ROUND(SUM(chem_percent), 6) AS sum_percent
+                 FROM productdetail
+                 WHERE product_id = ?
+               ) s ON s.product_id = pd.product_id
+               SET pd.productdetail_status = CASE WHEN s.sum_percent = 100 THEN 1 ELSE 0 END
+               WHERE pd.product_id = ?`,
+              [product_id, product_id],
+              (err) => {
+                if (err) return rollback(err);
+
+                connection.commit(err => {
+                  if (err) return rollback(err);
+                  res.json({ message: 'saved', product_id });
+                });
+              }
+            );
           }
-          res.json({ success: true, affected: insRes.affectedRows || 0 });
-        });
-      });
-    });
+        );
+      }
+    );
+
+    function rollback(e){
+      connection.rollback(() => res.status(500).json({ message: e.message }));
+    }
   });
 });
+
 
 
 // GET /productdetail/list

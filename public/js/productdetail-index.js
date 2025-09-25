@@ -77,7 +77,7 @@ document.addEventListener('DOMContentLoaded', function () {
     '<td>' + escapeHtml(x.brand_name || '-') + '</td>' +
     '<td>' + (x.productdetail_status === 'เสร็จสิ้น' || x.productdetail_status === true
         ? '<span class="badge text-bg-success">เสร็จสิ้น</span>'
-        : '<span class="badge text-bg-secondary">ยังไม่เสร็จ</span>') + '</td>' +
+        : '<span class="badge text-bg-danger">ยังไม่เสร็จ</span>') + '</td>' +
     '<td class="text-center">' +
       '<div class="btn-group btn-group-sm me-1">' +
         '<a class="btn btn-sm text-white" style="background-color:#00d312; border-color:#00d312;" ' +
