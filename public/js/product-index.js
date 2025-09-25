@@ -1,4 +1,4 @@
-// public/js/product-index.js
+// /public/js/product-index.js
 document.addEventListener("DOMContentLoaded", () => {
   const tbody = document.getElementById("product-tbody");
   const searchInput = document.getElementById("searchInput");
@@ -12,7 +12,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let fullData = [];
   let currentPage = 1;
 
-  // ตัวแปรสถานะการเรียง (เหมือน chem)
+  // ตัวแปรสถานะการเรียง
   let sortField = "product_name";   // ชื่อคอลัมน์สำหรับ sort ฝั่ง client
   let sortDirection = "asc";        // "asc" | "desc"
 
@@ -25,12 +25,12 @@ document.addEventListener("DOMContentLoaded", () => {
     const url = keyword
       ? `/product/read-all?q=${encodeURIComponent(keyword)}`
       : `/product/read-all`;
-    const res = await fetch(url);
+    const res = await fetch(url, { headers: { Accept: "application/json" } });
     if (!res.ok) throw new Error("โหลดข้อมูลไม่สำเร็จ");
     return res.json(); // ← array
   }
 
-  // อัปเดตไอคอนลูกศรบนหัวตารางตามสถานะเรียง (เหมือน chem)
+  // อัปเดตไอคอนลูกศรบนหัวตารางตามสถานะเรียง
   function updateSortIcons() {
     document.querySelectorAll("thead th[data-sort] .sort-icon").forEach((icon) => {
       icon.className = "bi bi-arrow-down-up sort-icon"; // reset ↕
@@ -127,7 +127,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const end = start + PAGE_SIZE;
     const pageItems = data.slice(start, end);
 
-    let html = pageItems
+    const html = pageItems
       .map(
         (item) => `
         <tr>
@@ -158,18 +158,16 @@ document.addEventListener("DOMContentLoaded", () => {
       )
       .join("");
 
+    // ✅ ไม่มีการเติมแถวเปล่า
+    tbody.innerHTML = html;
 
-  // ✅ ไม่มีการเติมแถวเปล่าอีกแล้ว
-  tbody.innerHTML = html;
+    if (pager) renderPagination(totalPages);
+  }
 
-  if (pager) renderPagination(totalPages);
-}
   function renderPagination(totalPages) {
     if (!pager) return;
-    if (totalPages <= 1) {
-      pager.innerHTML = "";
-      return;
-    }
+
+    totalPages = Math.max(1, totalPages);
 
     const prevDisabled = currentPage === 1 ? "disabled" : "";
     const nextDisabled = currentPage === totalPages ? "disabled" : "";
@@ -183,6 +181,7 @@ document.addEventListener("DOMContentLoaded", () => {
          </li>`
       );
 
+    // หน้าแรก
     addPage(1);
     if (currentPage - windowSize > 2)
       pages.push(`<li class="page-item disabled"><span class="page-link">…</span></li>`);
@@ -193,6 +192,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (currentPage + windowSize < totalPages - 1)
       pages.push(`<li class="page-item disabled"><span class="page-link">…</span></li>`);
+
     if (totalPages > 1) addPage(totalPages);
 
     pager.innerHTML = `
@@ -251,7 +251,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  // เดลิเกตกดปุ่มแก้ไข (ถ้าอยากไปหน้า create เปลี่ยนลิงก์ข้างบนแทน)
+  // เดลิเกตกดปุ่มแก้ไข
   tbody.addEventListener("click", (e) => {
     const editBtn = e.target.closest(".btn-edit");
     if (!editBtn) return;

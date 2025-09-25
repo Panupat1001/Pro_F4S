@@ -98,29 +98,34 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   })();
 
-  // ===== อัปโหลดไฟล์เมื่อเลือก แล้วอัปเดต hidden + พรีวิว =====
-  async function uploadAndBind(fileInput, hiddenInput, previewImg) {
-    if (!fileInput || !fileInput.files || fileInput.files.length === 0) return;
-    const file = fileInput.files[0];
+async function uploadAndBind(fileInput, hiddenInput, previewImg) {
+  if (!fileInput || !fileInput.files || fileInput.files.length === 0) return;
+  const file = fileInput.files[0];
 
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
+  try {
+    const formData = new FormData();
+    formData.append('file', file); // ตรงกับ upload.single('file')
 
-      const up = await fetch('/upload', { method: 'POST', body: formData });
-      if (!up.ok) throw new Error('อัปโหลดไฟล์ไม่สำเร็จ');
-      const uploaded = await up.json();
+    const up = await fetch('/upload/product-image', { method: 'POST', body: formData });
+    const uploaded = await up.json().catch(() => null);
 
-      const url = uploaded?.url || uploaded?.path || '';
-      if (!url) throw new Error('รูปแบบผลลัพธ์อัปโหลดไม่ถูกต้อง');
-      if (hiddenInput) hiddenInput.value = url;
-      setImg(previewImg, url);
-    } catch (err) {
-      console.error('อัปโหลดรูปผิดพลาด:', err);
-      showAlert('danger', 'อัปโหลดรูปไม่สำเร็จ');
-      if (fileInput) fileInput.value = ''; // reset เพื่อเลือกใหม่
+    if (!up.ok) {
+      const msg = uploaded?.message || `อัปโหลดไม่สำเร็จ (${up.status})`;
+      throw new Error(msg);
     }
+
+    const url = uploaded?.url;
+    if (!url) throw new Error('รูปแบบผลลัพธ์อัปโหลดไม่ถูกต้อง');
+
+    if (hiddenInput) hiddenInput.value = url;
+    if (previewImg) previewImg.src = url;
+  } catch (err) {
+    console.error('อัปโหลดรูปผิดพลาด:', err);
+    showAlert('danger', err.message || 'อัปโหลดรูปไม่สำเร็จ');
+    if (fileInput) fileInput.value = ''; // reset เพื่อเลือกใหม่
   }
+}
+
 
   if (file1) file1.addEventListener('change', () => uploadAndBind(file1, old1, preview1));
   if (file2) file2.addEventListener('change', () => uploadAndBind(file2, old2, preview2));
