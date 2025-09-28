@@ -428,5 +428,141 @@ router.patch('/:id', (req, res) => {
     return (v === '' || v === undefined) ? null : v;
   }
 });
+// NEW: ดึงเฉพาะสินค้าที่มี productdetail_status = 1 อย่างน้อย 1 แถว
+router.get('/options-ready', (req, res) => {
+  const q = (req.query.q || '').trim();
+  const where = [];
+  const params = [];
+
+  if (q) {
+    where.push('(p.product_name LIKE ? OR p.product_fdanum LIKE ?)');
+    params.push(`%${q}%`, `%${q}%`);
+  }
+
+  // มี productdetail ที่สถานะ = 1 อย่างน้อยหนึ่ง
+  where.push(`
+    EXISTS (
+      SELECT 1
+      FROM productdetail d
+      WHERE d.product_id = p.product_id
+        AND d.productdetail_status = 1
+    )
+  `);
+
+  const whereSql = `WHERE ${where.join(' AND ')}`;
+
+  // หมายเหตุ: ถ้าไม่มีคอลัมน์ product_code ใช้ fdanum → ถ้าไม่มีอีก ใช้ id
+  const sql = `
+    SELECT
+      p.product_id AS id,
+      p.product_name,
+      IFNULL(p.product_fdanum, CAST(p.product_id AS CHAR)) AS product_code
+    FROM product p
+    ${whereSql}
+    ORDER BY p.product_name ASC
+    LIMIT 200
+  `;
+
+  connection.query(sql, params, (err, rows) => {
+    if (err) {
+      console.error('options-ready error:', err);
+      return res.status(500).json({ message: 'DB error' });
+    }
+    res.json(rows || []);
+  });
+});
+// NEW: สินค้าที่ "มี productdetail อย่างน้อย 1 แถว" และ "ทุกแถวนั้น status = 1"
+router.get('/options-ready-all', (req, res) => {
+  const q = (req.query.q || '').trim();
+  const where = [];
+  const params = [];
+
+  if (q) {
+    where.push('(p.product_name LIKE ? OR p.product_fdanum LIKE ?)');
+    params.push(`%${q}%`, `%${q}%`);
+  }
+
+  // 1) ต้องมี detail อย่างน้อย 1 แถว
+  where.push(`
+    EXISTS (
+      SELECT 1 FROM productdetail d
+      WHERE d.product_id = p.product_id
+    )
+  `);
+
+  // 2) และ "ไม่มี" แถวไหนที่ status != 1 (หรือเป็น NULL/ค่าว่าง)
+  //    ใช้ CAST เพื่อกันเคสเก็บเป็น string '1'
+  where.push(`
+    NOT EXISTS (
+      SELECT 1 FROM productdetail d
+      WHERE d.product_id = p.product_id
+        AND (
+          d.productdetail_status IS NULL
+          OR TRIM(d.productdetail_status) = ''
+          OR CAST(d.productdetail_status AS UNSIGNED) <> 1
+        )
+    )
+  `);
+
+  const whereSql = `WHERE ${where.join(' AND ')}`;
+
+  const sql = `
+    SELECT
+      p.product_id AS id,
+      p.product_name,
+      IFNULL(p.product_fdanum, CAST(p.product_id AS CHAR)) AS product_code
+    FROM product p
+    ${whereSql}
+    ORDER BY p.product_name ASC
+    LIMIT 200
+  `;
+
+  connection.query(sql, params, (err, rows) => {
+    if (err) {
+      console.error('options-ready-all error:', err);
+      return res.status(500).json({ message: 'DB error' });
+    }
+    res.json(rows || []);
+  });
+});
+
+// NEW: /product/options-ready-any — มี productdetail ที่ status=1 อย่างน้อย 1 แถว
+router.get('/options-ready-any', (req, res) => {
+  const q = (req.query.q || '').trim();
+  const params = [];
+  let where = '';
+
+  if (q) {
+    where = 'WHERE p.product_name LIKE ? OR p.product_fdanum LIKE ?';
+    params.push(`%${q}%`, `%${q}%`);
+  }
+
+  const sql = `
+    SELECT
+      p.product_id AS id,
+      p.product_name,
+      IFNULL(p.product_fdanum, CAST(p.product_id AS CHAR)) AS product_code
+    FROM product p
+    JOIN productdetail d ON d.product_id = p.product_id
+    ${where}
+    GROUP BY p.product_id, p.product_name, p.product_fdanum
+    HAVING SUM(
+      CASE
+        WHEN CAST(COALESCE(NULLIF(TRIM(d.productdetail_status), ''), '0') AS UNSIGNED) = 1
+        THEN 1 ELSE 0
+      END
+    ) >= 1
+    ORDER BY p.product_name ASC
+    LIMIT 200
+  `;
+
+  connection.query(sql, params, (err, rows) => {
+    if (err) {
+      console.error('options-ready-any error:', err);
+      return res.status(500).json({ message: 'DB error' });
+    }
+    res.json(rows || []);
+  });
+});
 
 module.exports = router;
