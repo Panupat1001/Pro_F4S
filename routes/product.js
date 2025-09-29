@@ -6,6 +6,96 @@ const connection = require("../config/db");
 // middlewares
 const { attachStatusFromBody, calcStatusFromExp } = require("../middlewares/checkProductObsolete");
 
+function updateProductHandler(req, res) {
+  const id = req.params.id;
+  let {
+    brand_id,
+    product_name,
+    product_picture1,
+    product_picture2,
+    product_picture3,
+    product_fdanum,
+    product_exp,
+    product_fdadate,
+    product_obsolete,
+  } = req.body ?? {};
+
+  // alias -> ชื่อจริง (กันฟรอนต์เก่า)
+  if (!product_fdanum && req.body?.notify_no)        product_fdanum  = req.body.notify_no;
+  if (!product_fdadate && req.body?.notify_date)     product_fdadate = req.body.notify_date;
+  if (!product_exp && req.body?.expire_date)         product_exp     = req.body.expire_date;
+
+  const emptyToNull = (v) => (v === '' || v === undefined) ? null : v;
+
+  const doUpdate = () => {
+    const sql = `
+      UPDATE product p
+         SET p.brand_id         = COALESCE(?, p.brand_id),
+             p.product_name     = COALESCE(?, p.product_name),
+             p.product_picture1 = COALESCE(?, p.product_picture1),
+             p.product_picture2 = COALESCE(?, p.product_picture2),
+             p.product_picture3 = COALESCE(?, p.product_picture3),
+             p.product_fdanum   = COALESCE(?, p.product_fdanum),
+             p.product_exp      = COALESCE(?, p.product_exp),
+             p.product_fdadate  = COALESCE(?, p.product_fdadate),
+             p.product_obsolete = COALESCE(?, p.product_obsolete)
+       WHERE p.product_id = ?
+    `;
+    connection.query(
+      sql,
+      [
+        brand_id ?? null,
+        emptyToNull(product_name),
+        emptyToNull(product_picture1),
+        emptyToNull(product_picture2),
+        emptyToNull(product_picture3),
+        emptyToNull(product_fdanum),
+        emptyToNull(product_exp),
+        emptyToNull(product_fdadate),
+        product_obsolete ?? null,
+        id,
+      ],
+      (err, result) => {
+        if (err) {
+          console.error('Update product error:', err);
+          return res.status(500).json({ message: 'DB error', detail: err.sqlMessage });
+        }
+        if (result.affectedRows === 0) {
+          return res.status(404).json({ message: 'ไม่พบรายการที่ต้องการอัปเดต' });
+        }
+        res.json({
+          success: true,
+          affectedRows: result.affectedRows,
+          message: result.affectedRows > 0 ? 'อัปเดตสำเร็จ' : 'ไม่มีการเปลี่ยนแปลงค่า',
+        });
+      }
+    );
+  };
+
+  if (brand_id !== undefined && brand_id !== null && brand_id !== '') {
+    connection.query(
+      'SELECT 1 FROM brand WHERE brand_id = ? LIMIT 1',
+      [brand_id],
+      (err, rows) => {
+        if (err) {
+          console.error('Validate brand error:', err);
+          return res.status(500).json({ message: 'DB error' });
+        }
+        if (!rows || rows.length === 0) {
+          return res.status(400).json({ message: 'brand_id ไม่ถูกต้อง ไม่มีอยู่ในระบบ' });
+        }
+        doUpdate();
+      }
+    );
+  } else {
+    brand_id = null;
+    doUpdate();
+  }
+}
+
+// ใช้ร่วมกับทั้ง PUT และ PATCH
+router.put('/:id',  attachStatusFromBody, updateProductHandler);
+router.patch('/:id', attachStatusFromBody, updateProductHandler);
 router.get("/options-ready-all", (_req, res) => {
   const sql = `
     SELECT
