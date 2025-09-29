@@ -7,65 +7,45 @@ const SORTABLE = new Set(['proorder_id', 'order_date', 'order_exp', 'order_quant
 const ORDER = new Set(['asc', 'desc']);
 
 router.get('/list', (req, res) => {
-  let { page = 1, pageSize = 10, q = '', sortField = 'order_date', sortOrder = 'desc' } = req.query;
+  const q = (req.query.q || '').trim();
+  const sortField = (req.query.sortField || 'order_date').trim();
+  const sortOrder = (req.query.sortOrder || 'desc').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
-  page = Math.max(1, parseInt(page, 10) || 1);
-  pageSize = Math.min(100, Math.max(1, parseInt(pageSize, 10) || 10));
-  sortField = SORTABLE.has(String(sortField)) ? String(sortField) : 'order_date';
-  sortOrder = ORDER.has(String(sortOrder).toLowerCase()) ? String(sortOrder).toLowerCase() : 'desc';
+  // อนุญาตเฉพาะคอลัมน์ที่ปลอดภัยในการ sort
+  const allowed = {
+    product_name: 'p.product_name',
+    order_lot: 'po.order_lot',
+    order_date: 'po.order_date',
+    order_exp: 'po.order_exp'
+  };
+  const sortBy = allowed[sortField] || 'po.order_date';
 
-  const offset = (page - 1) * pageSize;
-
-  // filter: ถ้า q ไม่ว่างจะค้นหาใน order_lot หรือ proorder_id
-  const whereSql = q ? `WHERE order_lot LIKE ? OR proorder_id LIKE ?` : '';
-  const whereParams = q ? [`%${q}%`, `%${q}%`] : [];
-
-  const countSql = `
-    SELECT COUNT(*) AS total
-    FROM productorder
-    ${whereSql}
+  const sql = `
+    SELECT
+      po.proorder_id,
+      po.product_id,
+      p.product_name,                 -- << สำคัญ
+      po.order_lot,
+      po.order_date,
+      po.order_exp,
+      po.order_quantity
+    FROM productorder po
+    LEFT JOIN product p ON p.product_id = po.product_id
+    WHERE (? = '' 
+           OR p.product_name LIKE CONCAT('%', ?, '%')
+           OR po.order_lot   LIKE CONCAT('%', ?, '%'))
+    ORDER BY ${sortBy} ${sortOrder}
   `;
 
-  const listSql = `
-    SELECT 
-      proorder_id,
-      product_id,
-      order_quantity,
-      order_lot,
-      order_date,
-      order_exp,
-      PH,
-      color,
-      smell,
-      amount,
-      price
-    FROM productorder
-    ${whereSql}
-    ORDER BY ${sortField} ${sortOrder}
-    LIMIT ? OFFSET ?
-  `;
-
-  connection.query(countSql, whereParams, (err1, rows1) => {
-    if (err1) {
-      console.error('count error:', err1);
-      return res.status(500).json({ error: err1.message });
+  connection.query(sql, [q, q, q], (err, rows) => {
+    if (err) {
+      console.log('List productorder error:', err);
+      return res.status(400).json({ error: err.message });
     }
-    const total = rows1?.[0]?.total ?? 0;
-
-    connection.query(listSql, [...whereParams, pageSize, offset], (err2, rows2) => {
-      if (err2) {
-        console.error('list error:', err2);
-        return res.status(500).json({ error: err2.message });
-      }
-      return res.json({
-        items: rows2 || [],
-        total,
-        page,
-        pageSize,
-      });
-    });
+    res.json({ items: rows });
   });
 });
+
 // CREATE
 router.post('/create', (req, res) => {
   const {

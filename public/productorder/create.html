@@ -19,11 +19,11 @@
     <script src="/js/include-header.js"></script>
 
     <main class="container mt-4">
-      <div class="d-flex justify-content-between align-items-center mb-3">
-        <h2>เพิ่มคำสั่งซื้อสินค้า</h2>
-      </div>
-
       <form id="proorderForm" class="card p-4">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <h2>เพิ่มคำสั่งซื้อสินค้า</h2>
+        </div>
+
         <div class="row g-3">
           <!-- ดรอปดาวชื่อผลิตภัณฑ์ -->
           <div class="col-md-4">
@@ -67,7 +67,8 @@
               class="form-control"
               id="order_lot"
               maxlength="20"
-              placeholder="เช่น 2025-12345-01"
+              placeholder="xxxx-xxxxx-xx"
+              pattern="\d{4}-\d{5}-\d{2}"
             />
           </div>
 
@@ -84,10 +85,10 @@
 
         <div class="mt-4 d-flex gap-2">
           <a href="/productorder/index.html" class="btn btn-outline-secondary">
-            <i class="bi bi-arrow-left"></i> กลับรายการ
+            ยกเลิก
           </a>
-          <button type="submit" class="btn btn-primary">
-            <i class="bi bi-save"></i> บันทึก
+          <button type="submit" class="btn btn-success">
+            <i class="bi bi-save"></i> คำนวณ
           </button>
         </div>
       </form>

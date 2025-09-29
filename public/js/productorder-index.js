@@ -1,206 +1,231 @@
 // /public/js/productorder-index.js
-document.addEventListener('DOMContentLoaded', () => {
-  // --------- DOM refs ---------
-  const tbody = document.getElementById('productorder-tbody');
-  const pager = document.getElementById('productorder-pagination');
-  const tableWrapper = document.getElementById('table-wrapper');
-  const searchInput = document.getElementById('searchInput');
-  const searchBtn = document.getElementById('searchBtn');
+document.addEventListener('DOMContentLoaded', function () {
+  var tbody = document.getElementById('productorder-tbody');
+  var pager = document.getElementById('productorder-pagination');
+  var searchInput = document.getElementById('searchInput');
+  var searchBtn = document.getElementById('searchBtn');
 
-  // --------- State ---------
-  const state = {
+  // ตัวหุ้มตาราง (ไว้ show/hide เวลาไม่มีข้อมูล)
+  var tableWrapper =
+    document.getElementById('productorder-table-wrapper') ||
+    (tbody ? tbody.closest('.table-responsive') : null) ||
+    (tbody ? tbody.parentElement : null);
+
+  // ----- ตั้งค่าหน้าละกี่รายการ (Client-side) -----
+  var PAGE_SIZE = 10;
+  var currentPage = 1;
+
+  var state = {
     page: 1,
-    pageSize: 10,
+    pageSize: 10000,
     q: '',
-    sortField: 'order_date', // ปรับตามคอลัมน์จริงใน DB
+    sortField: 'order_date',
     sortOrder: 'desc',
-    total: 0,
-    items: [],
+    allItems: []
   };
 
-  // --------- Utils ---------
-  const escape = (s) =>
-    String(s ?? '')
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;');
-
-  function fmtDate(d) {
-    if (!d) return '-';
-    // รองรับทั้ง 'YYYY-MM-DD' และ ISO string
-    const dt = new Date(d);
-    if (isNaN(dt.getTime())) return escape(d);
-    const y = dt.getFullYear();
-    const m = String(dt.getMonth() + 1).padStart(2, '0');
-    const day = String(dt.getDate()).padStart(2, '0');
-    return `${day}/${m}/${y}`;
-  }
-
-  function statusBadge(s) {
-    const k = String(s ?? '').toLowerCase();
-    let cls = 'secondary';
-    if (['pending', 'รอดำเนินการ'].includes(k)) cls = 'warning';
-    else if (['confirmed', 'ยืนยัน'].includes(k)) cls = 'info';
-    else if (['paid', 'ชำระเงินแล้ว'].includes(k)) cls = 'primary';
-    else if (['shipped', 'จัดส่งแล้ว'].includes(k)) cls = 'success';
-    else if (['cancelled', 'ยกเลิก'].includes(k)) cls = 'danger';
-    return `<span class="badge text-bg-${cls}">${escape(s || '-')}</span>`;
-  }
-
-  // --------- API ---------
-  async function fetchList() {
-    const params = new URLSearchParams({
+  // โหลดรายการจาก BE
+  function fetchList() {
+    var params = new URLSearchParams({
       page: String(state.page),
       pageSize: String(state.pageSize),
       q: state.q,
       sortField: state.sortField,
-      sortOrder: state.sortOrder,
+      sortOrder: state.sortOrder
     });
-
-    const res = await fetch(`/productorder/list?${params.toString()}`, {
-      headers: { Accept: 'application/json' },
+    return fetch('/productorder/list?' + params.toString(), {
+      headers: { Accept: 'application/json' }
+    }).then(function (res) {
+      if (!res.ok) throw new Error('โหลดข้อมูลไม่สำเร็จ');
+      return res.json();
     });
-    if (!res.ok) throw new Error('โหลดข้อมูลไม่สำเร็จ');
+  }
 
-    // รองรับทั้งรูปแบบ { items, total } และ array[] เผื่อ API ฝั่งคุณยังไม่แยก total
-    const data = await res.json();
-    if (Array.isArray(data)) {
-      state.items = data;
-      state.total = data.length;
+  // —— render หน้าตาราง (client slice) ——
+  function renderTablePage(data, page) {
+    var total = data.length;
+
+    if (total === 0) {
+      if (tableWrapper) tableWrapper.style.display = 'none';
+      if (pager) pager.innerHTML = '';
+      if (tbody) tbody.innerHTML = '';
       return;
     }
-    state.items = Array.isArray(data.items) ? data.items : [];
-    state.total = Number(data.total ?? state.items.length);
+    if (tableWrapper) tableWrapper.style.display = '';
+
+    var totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    currentPage = Math.min(Math.max(1, page || 1), totalPages);
+
+    var start = (currentPage - 1) * PAGE_SIZE;
+    var end = start + PAGE_SIZE;
+    var pageItems = data.slice(start, end);
+
+    var html = pageItems.map(function (x) {
+      // ----- ตัวช่วยดึงชื่อผลิตภัณฑ์แบบกันเหนียว -----
+      var productName =
+        x.product_name ??
+        x.productName ??
+        (x.product && (x.product.product_name ?? x.product.name)) ??
+        x.name ??
+        '-';
+
+      // ป้องกัน XSS
+      productName = escapeHtml(productName);
+
+      var id = x.proorder_id != null ? x.proorder_id : '';
+      var lot = escapeHtml(x.order_lot || '-');
+      var orderDate = formatDate(x.order_date);
+      var expDate = formatDate(x.order_exp);
+
+      return '' +
+        '<tr data-proorder-id="' + id + '">' +
+          '<td>' + productName + '</td>' +
+          '<td>' + lot + '</td>' +
+          '<td>' + orderDate + '</td>' +
+          '<td>' + expDate + '</td>' +
+          '<td class="text-center">' +
+            '<div class="btn-group btn-group-sm">' +
+              '<a class="btn btn-sm text-white" style="background-color:#00d312; border-color:#00d312;" ' +
+                 'href="/productorder/detail.html?id=' + encodeURIComponent(id) + '" title="ดูรายละเอียด">📋</a>' +
+            '</div>' +
+          '</td>' +
+        '</tr>';
+    }).join('');
+
+    tbody.innerHTML = html;
+
+    if (pager) renderPagination(totalPages);
   }
 
- function renderRows(items) {
-  if (!tbody) return;
-  if (!items || items.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted py-4">ไม่พบข้อมูล</td></tr>`;
-    return;
-  }
+  function renderPagination(totalPages) {
+    var cur = currentPage;
+    var html = '<ul class="pagination justify-content-center">';
 
-  tbody.innerHTML = items.map((x) => `
-    <tr>
-      <td>#${escape(x.proorder_id)}</td>
-      <td>${fmtDate(x.order_date)}</td>
-      <td>${escape(x.order_lot)}</td>
-      <td>${escape(x.order_quantity)}</td>
-      <td class="text-nowrap">
-        <a class="btn btn-sm btn-outline-secondary me-1"
-           href="/productorder/detail.html?id=${encodeURIComponent(x.proorder_id)}">
-          <i class="bi bi-eye"></i> ดู
-        </a>
-        <a class="btn btn-sm btn-primary"
-           href="/productorder/edit.html?id=${encodeURIComponent(x.proorder_id)}">
-          <i class="bi bi-pencil-square"></i> แก้ไข
-        </a>
-      </td>
-    </tr>
-  `).join('');
-}
-
-
-  function renderPager() {
-    if (!pager) return;
-    const totalPages = Math.max(1, Math.ceil(state.total / state.pageSize));
-    const cur = Math.min(Math.max(1, state.page), totalPages);
-
-    function pageBtn(p, label = p, disabled = false, active = false) {
-      const dis = disabled ? ' disabled' : '';
-      const act = active ? ' active' : '';
-      return `
-        <li class="page-item${dis}${act}">
-          <a class="page-link" href="#" data-page="${p}">${label}</a>
-        </li>`;
+    function add(label, page, disabled, active) {
+      html += '' +
+        '<li class="page-item ' + (disabled ? 'disabled' : '') + ' ' + (active ? 'active' : '') + '">' +
+          '<a class="page-link" href="#" data-page="' + page + '">' + label + '</a>' +
+        '</li>';
     }
 
-    const hasPrev = cur > 1;
-    const hasNext = cur < totalPages;
+    add('«', 1, cur === 1, false);
+    add('‹', Math.max(cur - 1, 1), cur === 1, false);
 
-    // สร้างช่วงเลขหน้าเล็กๆ
-    const windowSize = 5;
-    const start = Math.max(1, cur - Math.floor(windowSize / 2));
-    const end = Math.min(totalPages, start + windowSize - 1);
-    const realStart = Math.max(1, end - windowSize + 1);
+    var windowSize = 2;
+    var start = Math.max(1, cur - windowSize);
+    var end = Math.min(totalPages, cur + windowSize);
+    for (var p = start; p <= end; p++) add(String(p), p, false, p === cur);
 
-    let html = '';
-    html += pageBtn(cur - 1, '&laquo;', !hasPrev, false);
-    for (let p = realStart; p <= end; p++) {
-      html += pageBtn(p, String(p), false, p === cur);
-    }
-    html += pageBtn(cur + 1, '&raquo;', !hasNext, false);
+    add('›', Math.min(cur + 1, totalPages), cur === totalPages, false);
+    add('»', totalPages, cur === totalPages, false);
 
+    html += '</ul>';
     pager.innerHTML = html;
+  }
 
-    // bind click
-    pager.querySelectorAll('a.page-link').forEach((a) => {
-      a.addEventListener('click', (e) => {
-        e.preventDefault();
-        const p = Number(a.getAttribute('data-page'));
-        if (!Number.isFinite(p) || p === state.page) return;
-        state.page = Math.max(1, p);
-        load();
+  function load() {
+    fetchList()
+      .then(function (data) {
+        // ----- รองรับหลายรูปแบบ response -----
+        var items = [];
+        if (Array.isArray(data)) {
+          items = data;
+        } else if (Array.isArray(data.items)) {
+          items = data.items;
+        } else if (Array.isArray(data.data)) {
+          items = data.data;
+        } else if (data && typeof data === 'object') {
+          // หา array แรกๆ ใน object เผื่อ BE ห่อชื่ออื่น
+          for (var k in data) {
+            if (Array.isArray(data[k])) { items = data[k]; break; }
+          }
+        }
+
+        // ดีบั๊กโครงสร้างจริง
+        try { console.log('[productorder] sample item:', items[0]); } catch (e) {}
+
+        state.allItems = items || [];
+        renderTablePage(state.allItems, 1);
+      })
+      .catch(function (err) {
+        console.error(err);
+        if (tbody) {
+          tbody.innerHTML = '<tr><td class="text-danger" colspan="5">เกิดข้อผิดพลาดในการโหลดข้อมูล</td></tr>';
+        }
+        if (pager) pager.innerHTML = '';
       });
-    });
   }
 
-  function toggleTableWrapper() {
-    if (!tableWrapper) return;
-    if (state.total === 0) tableWrapper.style.display = 'none';
-    else tableWrapper.style.display = '';
+  // sort handlers
+  var ths = document.querySelectorAll('thead th[data-field]');
+  for (var i = 0; i < ths.length; i++) {
+    var th = ths[i];
+    th.style.cursor = 'pointer';
+    th.addEventListener('click', (function (thEl) {
+      return function () {
+        var field = thEl.getAttribute('data-field');
+        if (!field) return;
+
+        if (state.sortField === field) {
+          state.sortOrder = (state.sortOrder === 'asc' ? 'desc' : 'asc');
+        } else {
+          state.sortField = field;
+          state.sortOrder = 'asc';
+        }
+        load();
+      };
+    })(th));
   }
 
-  // --------- Load ---------
-  async function load() {
-    try {
-      await fetchList();
-      renderRows(state.items);
-      renderPager();
-      toggleTableWrapper();
-    } catch (err) {
-      console.error('โหลดรายการสั่งซื้อไม่สำเร็จ:', err);
-      if (tbody) {
-        tbody.innerHTML = `
-          <tr>
-            <td colspan="5" class="text-center text-danger py-4">
-              โหลดข้อมูลไม่สำเร็จ
-            </td>
-          </tr>`;
-      }
+  // pagination click (client)
+  pager.addEventListener('click', function (e) {
+    var a = e.target.closest('a[data-page]');
+    if (!a) return;
+    e.preventDefault();
+    var p = parseInt(a.getAttribute('data-page'), 10);
+    if (isFinite(p) && p > 0) {
+      renderTablePage(state.allItems, p);
     }
-  }
+  });
 
-  // --------- Events ---------
+  // search
   if (searchBtn) {
-    searchBtn.addEventListener('click', () => {
-      state.q = String(searchInput?.value ?? '').trim();
-      state.page = 1;
+    searchBtn.addEventListener('click', function () {
+      state.q = (searchInput && searchInput.value ? searchInput.value.trim() : '');
       load();
     });
   }
-
   if (searchInput) {
-    searchInput.addEventListener('keydown', (e) => {
+    searchInput.addEventListener('keydown', function (e) {
       if (e.key === 'Enter') {
-        state.q = String(searchInput.value ?? '').trim();
-        state.page = 1;
+        state.q = searchInput.value.trim();
         load();
       }
     });
   }
 
-  // (ถ้าจะทำให้คลิกหัวตารางเพื่อ sort ได้ ให้เพิ่ม id ให้ <th> แล้ว bind ตรงนี้)
-  // ตัวอย่าง:
-  // document.getElementById('th-order-date')?.addEventListener('click', () => {
-  //   state.sortField = 'order_date';
-  //   state.sortOrder = state.sortOrder === 'asc' ? 'desc' : 'asc';
-  //   state.page = 1;
-  //   load();
-  // });
+  // utils
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, function (ch) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch];
+    });
+  }
+  function pad2(n) { return n < 10 ? '0' + n : '' + n; }
+  function formatDate(v) {
+    if (!v) return '-';
+    try {
+      if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+      var d = new Date(v);
+      if (isNaN(d.getTime())) return escapeHtml(String(v));
+      var y = d.getFullYear();
+      var m = pad2(d.getMonth() + 1);
+      var day = pad2(d.getDate());
+      return y + '-' + m + '-' + day;
+    } catch {
+      return escapeHtml(String(v));
+    }
+  }
 
-  // --------- First load ---------
+  // init
   load();
 });
