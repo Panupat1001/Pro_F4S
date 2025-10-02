@@ -1,10 +1,11 @@
+// routes/productorderdetail.js
 const express = require('express');
 const router = express.Router();
 const connection = require('../config/db');
 
-// CREATE
+// CREATE (เพิ่มใหม่ หรือบวกเพิ่มถ้ามีอยู่แล้ว)
 router.post('/create', (req, res) => {
-  const {
+  let {
     prodetail_id,
     chem_id,
     proorder_id,
@@ -14,21 +15,80 @@ router.post('/create', (req, res) => {
     chem_price,
     coa,
     msds
-  } = req.body;
+  } = req.body || {};
 
-  connection.query(
-    `INSERT INTO productorderdetail
-    (prodetail_id, chem_id, proorder_id, company_id, orderuse, orderbuy, chem_price, coa, msds)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [prodetail_id, chem_id, proorder_id, company_id, orderuse, orderbuy, chem_price, coa, msds],
-    (err, result) => {
-      if (err) {
-        console.log("Insert productorderdetail error:", err);
-        return res.status(400).json({ error: err.message });
-      }
-      res.status(201).json({ message: "ProductOrderDetail created successfully" });
+  if (!chem_id || !proorder_id || !Number.isFinite(Number(orderuse))) {
+    return res.status(400).json({ error: 'proorder_id, chem_id, orderuse are required' });
+  }
+
+  proorder_id = Number(proorder_id);
+  const useQty = Number(orderuse);
+  const buyQty = Number.isFinite(Number(orderbuy)) ? Number(orderbuy) : useQty;
+
+  // หาแถวเดิมก่อน
+  const sqlFind = `
+    SELECT pod_id, orderuse, orderbuy
+    FROM productorderdetail
+    WHERE proorder_id = ? AND chem_id = ?
+    LIMIT 1
+  `;
+  connection.query(sqlFind, [proorder_id, chem_id], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    // ถ้ามี → update บวกเพิ่ม
+    if (rows && rows.length) {
+      const row = rows[0];
+      const newUse = Number(row.orderuse || 0) + useQty;
+      const newBuy = Number(row.orderbuy || 0) + buyQty;
+
+      const sqlUpdate = `
+        UPDATE productorderdetail
+        SET
+          orderuse      = ?,
+          orderbuy      = ?,
+          prodetail_id  = COALESCE(?, prodetail_id),
+          company_id    = COALESCE(?, company_id),
+          chem_price    = COALESCE(?, chem_price),
+          coa           = COALESCE(?, coa),
+          msds          = COALESCE(?, msds)
+        WHERE pod_id = ?
+      `;
+      connection.query(
+        sqlUpdate,
+        [newUse, newBuy, prodetail_id ?? null, company_id ?? null, chem_price ?? null, coa ?? null, msds ?? null, row.pod_id],
+        (err2) => {
+          if (err2) return res.status(500).json({ error: err2.message });
+          return res.status(200).json({ message: 'updated', pod_id: row.pod_id, orderuse: newUse, orderbuy: newBuy });
+        }
+      );
+      return;
     }
-  );
+
+    // ถ้าไม่มี → insert ใหม่
+    const sqlInsert = `
+      INSERT INTO productorderdetail
+        (prodetail_id, chem_id, proorder_id, company_id, orderuse, orderbuy, chem_price, coa, msds)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+    connection.query(
+      sqlInsert,
+      [
+        prodetail_id ?? null,
+        chem_id,
+        proorder_id,
+        company_id ?? null,
+        useQty,
+        buyQty,
+        chem_price ?? null,
+        coa ?? null,
+        msds ?? null
+      ],
+      (err3, result) => {
+        if (err3) return res.status(500).json({ error: err3.message });
+        return res.status(201).json({ message: 'created', pod_id: result.insertId });
+      }
+    );
+  });
 });
 
 // READ ALL
@@ -45,6 +105,24 @@ router.get('/read/:id', (req, res) => {
   connection.query("SELECT * FROM productorderdetail WHERE pod_id = ?", [id], (err, result) => {
     if (err) return res.status(400).json({ error: err.message });
     res.status(200).json(result);
+  });
+});
+
+// READ BY proorder_id (ดึงรายการตามคำสั่งผลิต)
+router.get('/by-order/:proorderId', (req, res) => {
+  const proorderId = Number(req.params.proorderId);
+  if (!proorderId) return res.status(400).json({ error: 'proorderId is required' });
+
+  const sql = `
+    SELECT pod.*, c.chem_name, c.inci_name, c.chem_unit
+    FROM productorderdetail pod
+    LEFT JOIN chem c ON c.chem_id = pod.chem_id
+    WHERE pod.proorder_id = ?
+    ORDER BY pod.pod_id ASC
+  `;
+  connection.query(sql, [proorderId], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ items: rows || [] });
   });
 });
 
@@ -69,7 +147,7 @@ router.patch('/update/:id', (req, res) => {
     orderuse = ?, orderbuy = ?, chem_price = ?, coa = ?, msds = ?
     WHERE pod_id = ?`,
     [prodetail_id, chem_id, proorder_id, company_id, orderuse, orderbuy, chem_price, coa, msds, id],
-    (err, result) => {
+    (err) => {
       if (err) return res.status(400).json({ error: err.message });
       res.status(200).json({ message: "ProductOrderDetail updated successfully" });
     }

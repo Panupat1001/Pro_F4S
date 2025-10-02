@@ -93,6 +93,7 @@ function pickChemQuantity(n){
 function normalizeChemRow(n){
   const chemQty = pickChemQuantity(n);
   return {
+    prodetail_id: Number(n.prodetail_id ?? n.prodetailId ?? n.prodetailid ?? 0), // 👈 เพิ่มบรรทัดนี้
     chem_id: Number((n.chem_id != null ? n.chem_id : n.id)),
     chem_percent: Number(
       (n.chem_percent != null ? n.chem_percent :
@@ -198,7 +199,6 @@ async function fillMissingChemNames(rows){
   await Promise.all(tasks);
 }
 
-// ---------- คำนวณสำหรับหน้าจอ ----------
 function computeChemLines(chems, orderQtyGram) {
   const qty = Number(orderQtyGram || 0);
   return chems.map((r) => {
@@ -209,11 +209,11 @@ function computeChemLines(chems, orderQtyGram) {
 
     const need = percent * qty * 0.01; // ต้องใช้(กรัม)
     const actual = need * 1.2;         // ผลิต(กรัม) = ต้องใช้ * 1.2
-
-    // ใช้ chem_quantity ก่อน (จาก JOIN chem)
     const remainRaw = (r.chem_quantity ?? r.chem_remain ?? r.remain ?? r.chem_stock ?? 0);
 
     return {
+      // NEW: เก็บ chemId ไว้ให้ปุ่ม
+      chemId: r.chem_id,              // NEW
       name: displayName,
       need,
       actual,
@@ -222,6 +222,7 @@ function computeChemLines(chems, orderQtyGram) {
     };
   });
 }
+
 
 // ---------- Main ----------
 document.addEventListener("DOMContentLoaded", async () => {
@@ -306,23 +307,99 @@ document.addEventListener("DOMContentLoaded", async () => {
   // คำนวณ need/actual + ใช้ chem_quantity เป็น "ปริมาณคงเหลือ"
   const list = computeChemLines(baseChems, qtyGram);
 
-  // เติมตาราง
-  const tbody = $("chemTableBody");
-  if (tbody) {
-    tbody.innerHTML = list.length
-      ? list.map((x) => `
-          <tr>
-            <td>
-              ${esc(x.name)}${x.noPercent ? '<span class="badge bg-warning text-dark ms-2">ไม่มี %</span>' : ''}
-            </td>
-            <td>${Number(x.need).toFixed(2)}</td>
-            <td>${Number.isFinite(Number(x.remain)) ? Number(x.remain).toFixed(2) : esc(String(x.remain))}</td>
-            <td>${Number(x.actual).toFixed(2)}</td>
-          </tr>
-        `).join("")
-      : `<tr><td colspan="4" class="text-center text-muted">ไม่มีรายการสารเคมี</td></tr>`;
-  }
+// เติมตาราง
+const tbody = $("chemTableBody");
+if (tbody) {
+  tbody.innerHTML = list.length
+    ? list.map((x) => `
+        <tr data-chem-id="${x.chemId}" data-need="${Number(x.need).toFixed(2)}" data-actual="${Number(x.actual).toFixed(2)}">
+          <td>
+            ${esc(x.name)}${x.noPercent ? '<span class="badge bg-warning text-dark ms-2">ไม่มี %</span>' : ''}
+          </td>
+          <td>${Number(x.need).toFixed(2)}</td>
+          <td>${Number.isFinite(Number(x.remain)) ? Number(x.remain).toFixed(2) : esc(String(x.remain))}</td>
+          <td>${Number(x.actual).toFixed(2)}</td>
+          <td class="text-end">
+            <button type="button" class="btn btn-sm btn-success order-chem"
+        data-chem-id="${x.chemId}"
+        data-prodetail-id="${x.prodetailId}"
+        data-qty="${Number(x.need).toFixed(2)}">
+  สั่งซื้อ
+</button>
+          </td>
+        </tr>
+      `).join("")
+    : `<tr><td colspan="5" class="text-center text-muted">ไม่มีรายการสารเคมี</td></tr>`; // ปรับ colspan เป็น 5
+}
+
 
   const alertBox = $("alertBox");
   if (alertBox) alertBox.classList.add("d-none");
+});
+
+// ===== helper: ยิงไปสร้าง/บวกเพิ่ม productorderdetail =====
+async function postPOD(payload) {
+  const urls = [
+    '/productorderdetail/create',
+    '/api/productorderdetail/create'
+  ];
+  let lastErr;
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || String(res.status));
+      return data;
+    } catch (e) {
+      console.warn('[POD] try', url, '->', e.message);
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error('all endpoints failed');
+}
+
+// ===== จับคลิกปุ่ม "สั่งซื้อ" =====
+document.addEventListener('click', async (ev) => {
+  const btn = ev.target.closest('.order-chem');
+  if (!btn) return;
+  ev.preventDefault(); // กันเผื่อปุ่มอยู่ใน <form>
+
+  // อ่านค่า
+  const proorderId = toInt(getParam('id') ?? getParam('proorder_id'), 0);
+  const chemId     = toInt(btn.dataset.chemId, 0);
+  const prodetailId= toInt(btn.dataset.prodetailId, 0); // ส่งได้/ไม่ส่งก็ได้
+  const qty        = Number(btn.dataset.qty || 0);
+
+  if (!proorderId || !chemId || !(qty > 0)) {
+    showAlert('warning', 'ข้อมูลไม่ครบ: proorder_id / chem_id / qty');
+    return;
+  }
+
+  // UX ระหว่างส่ง
+  btn.disabled = true;
+  const oldText = btn.textContent;
+  btn.textContent = 'กำลังเพิ่ม...';
+
+  try {
+    const payload = {
+      proorder_id: proorderId,
+      chem_id: chemId,
+      orderuse: qty,
+      prodetail_id: prodetailId || null
+      // company_id / chem_price / coa / msds เพิ่มได้ถ้าคุณมีค่า
+    };
+    const data = await postPOD(payload);
+    console.log('[POD] created/updated:', data);
+    btn.textContent = 'เพิ่มแล้ว ✓';
+    showAlert('success', 'บันทึกรายการสั่งซื้อเรียบร้อย');
+  } catch (e) {
+    console.error('[POD] failed:', e);
+    btn.disabled = false;
+    btn.textContent = oldText;
+    showAlert('danger', 'เพิ่มรายการไม่สำเร็จ: ' + e.message);
+  }
 });
