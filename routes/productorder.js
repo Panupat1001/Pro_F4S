@@ -59,41 +59,69 @@ router.get('/:id/chems', (req, res) => {
 
 router.get('/list', (req, res) => {
   const q = (req.query.q || '').trim();
+
+  // รองรับการ sort
   const sortField = (req.query.sortField || 'order_date').trim();
   const sortOrder = (req.query.sortOrder || 'desc').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
-  const allowed = {
+  // map ชื่อ field ที่อนุญาตให้ sort
+  const allowedSort = {
     product_name: 'p.product_name',
     order_lot: 'po.order_lot',
     order_date: 'po.order_date',
-    order_exp: 'po.order_exp'
+    order_exp: 'po.order_exp',
+    proorder_id: 'po.proorder_id'
   };
-  const sortBy = allowed[sortField] || 'po.order_date';
+  const sortBy = allowedSort[sortField] || 'po.order_date';
 
-  const sqlChems = `
-  SELECT
-    pd.prodetail_id       AS prodetail_id,
-    pd.product_id,
-    pd.chem_id,
-    pd.chem_percent,
-    c.chem_name,
-    c.inci_name,
-    c.chem_quantity,
-    c.chem_unit
-  FROM productdetail pd
-  LEFT JOIN chem c ON c.chem_id = pd.chem_id
-  WHERE pd.product_id = ?
-  ORDER BY pd.prodetail_id ASC
-`;
+  const params = [];
+  let where = '';
+  if (q) {
+    const like = `%${q}%`;
+    where = `
+      WHERE
+        p.product_name LIKE ? OR
+        po.order_lot   LIKE ? OR
+        po.proorder_id LIKE ? OR
+        DATE_FORMAT(po.order_date, '%Y-%m-%d') LIKE ? OR
+        DATE_FORMAT(po.order_exp,  '%Y-%m-%d') LIKE ?
+    `;
+    // หมายเหตุ: ถ้า proorder_id เป็นตัวเลขล้วน
+    // การใช้ LIKE กับคอลัมน์ตัวเลขใน MySQL อาจต้อง CAST:
+    //   CAST(po.proorder_id AS CHAR) LIKE ?
+    params.push(like, like, like, like, like);
+  }
 
-  connection.query(sql, [q, q, q], (err, rows) => {
+  // ✅ SQL สำหรับ list ใบสั่งผลิต (join ชื่อสินค้า)
+  const sql = `
+    SELECT
+      po.proorder_id,
+      po.product_id,
+      p.product_name,
+      po.order_lot,
+      po.order_date,
+      po.order_exp,
+      po.order_quantity,
+      po.price,
+      po.PH,
+      po.color,
+      po.smell,
+      po.amount
+    FROM productorder po
+    LEFT JOIN product p ON p.product_id = po.product_id
+    ${where}
+    ORDER BY ${sortBy} ${sortOrder}
+  `;
+
+  connection.query(sql, params, (err, rows) => {
     if (err) {
       console.log('List productorder error:', err);
       return res.status(400).json({ error: err.message });
     }
-    res.json({ items: rows });
+    res.json({ items: rows || [] });
   });
 });
+
 
 // CREATE
 router.post('/create', (req, res) => {

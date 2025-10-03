@@ -136,7 +136,7 @@ function renderTablePage(data, page = 1) {
         <a href="/productorderdetail/detail.html?id=${encodeURIComponent(x.pod_id)}"
            class="btn btn-sm text-white"
            style="background-color:#00d312; border-color:#00d312;"
-           title="ดูรายละเอียด">📋</a>
+           title="สั่งซื้อ">สั่งซื้อ</a>
         <a href="/productorderdetail/edit.html?id=${encodeURIComponent(x.pod_id)}"
            class="btn btn-dark btn-sm btn-edit"
            data-id="${esc(x.pod_id)}"
