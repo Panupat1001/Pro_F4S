@@ -3,7 +3,9 @@ const express = require('express');
 const router = express.Router();
 const connection = require('../config/db');
 
-// CREATE (เพิ่มใหม่ หรือบวกเพิ่มถ้ามีอยู่แล้ว)
+/* =========================
+ * CREATE (เพิ่มใหม่ หรือบวกเพิ่มถ้ามีอยู่แล้ว)
+ * ========================= */
 router.post('/create', (req, res) => {
   let {
     prodetail_id,
@@ -25,7 +27,6 @@ router.post('/create', (req, res) => {
   const useQty = Number(orderuse);
   const buyQty = Number.isFinite(Number(orderbuy)) ? Number(orderbuy) : useQty;
 
-  // หาแถวเดิมก่อน
   const sqlFind = `
     SELECT pod_id, orderuse, orderbuy
     FROM productorderdetail
@@ -91,42 +92,124 @@ router.post('/create', (req, res) => {
   });
 });
 
-// READ ALL
+
+/* =========================
+ * READ (list + optional filters/search)
+ * คืนค่าเป็นคอลัมน์:
+ * chem_name, order_lot, company_name, orderuse, chem_price, orderbuy, coa, msds (+ pod_id)
+ * ========================= */
 router.get('/read', (req, res) => {
-  connection.query("SELECT * FROM productorderdetail", (err, result) => {
-    if (err) return res.status(400).json({ error: err.message });
-    res.status(200).json(result);
+  const { q = '', proorder_id } = req.query;
+
+  const params = [];
+  const where = [];
+
+  if (proorder_id) { where.push('pod.proorder_id = ?'); params.push(Number(proorder_id)); }
+  if (q) {
+    const like = `%${q}%`;
+    where.push('(c.chem_name LIKE ? OR po.order_lot LIKE ? OR cp.company_name LIKE ?)');
+    params.push(like, like, like);
+  }
+
+  const sql = `
+    SELECT
+      pod.pod_id,
+      COALESCE(c.chem_name, CONCAT('[', pod.chem_id, ']')) AS chem_name,
+      COALESCE(po.order_lot, '-')                          AS order_lot,
+      COALESCE(cp.company_name, '-')                       AS company_name,
+      pod.orderuse,
+      pod.chem_price,
+      pod.orderbuy,
+      pod.coa,
+      pod.msds
+    FROM productorderdetail pod
+    LEFT JOIN chem         c  ON c.chem_id      = pod.chem_id
+    LEFT JOIN productorder po ON po.proorder_id = pod.proorder_id
+    LEFT JOIN company      cp ON cp.company_id  = pod.company_id
+    ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+    ORDER BY pod.pod_id DESC
+  `;
+
+  connection.query(sql, params, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows || []);
   });
 });
 
-// READ BY ID
+
+/* =========================
+ * READ BY ID (join เหมือนกัน)
+ * ========================= */
 router.get('/read/:id', (req, res) => {
-  const id = req.params.id;
-  connection.query("SELECT * FROM productorderdetail WHERE pod_id = ?", [id], (err, result) => {
-    if (err) return res.status(400).json({ error: err.message });
-    res.status(200).json(result);
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ error: 'id is required' });
+
+  const sql = `
+    SELECT
+      pod.pod_id,
+      COALESCE(c.chem_name, CONCAT('[', pod.chem_id, ']')) AS chem_name,
+      COALESCE(po.order_lot, '-')                          AS order_lot,
+      COALESCE(cp.company_name, '-')                       AS company_name,
+      pod.orderuse,
+      pod.chem_price,
+      pod.orderbuy,
+      pod.coa,
+      pod.msds,
+      -- id อ้างอิงเพื่อหน้าแก้ไข
+      pod.chem_id,
+      pod.proorder_id,
+      pod.company_id,
+      pod.prodetail_id
+    FROM productorderdetail pod
+    LEFT JOIN chem         c  ON c.chem_id      = pod.chem_id
+    LEFT JOIN productorder po ON po.proorder_id = pod.proorder_id
+    LEFT JOIN company      cp ON cp.company_id  = pod.company_id
+    WHERE pod.pod_id = ?
+    LIMIT 1
+  `;
+  connection.query(sql, [id], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!rows || rows.length === 0) return res.status(404).json({ message: 'not found' });
+    res.json(rows[0]);
   });
 });
 
-// READ BY proorder_id (ดึงรายการตามคำสั่งผลิต)
+
+/* =========================
+ * READ BY ORDER (รายการในใบสั่งผลิตเดียว)
+ * ========================= */
 router.get('/by-order/:proorderId', (req, res) => {
   const proorderId = Number(req.params.proorderId);
   if (!proorderId) return res.status(400).json({ error: 'proorderId is required' });
 
   const sql = `
-    SELECT pod.*, c.chem_name, c.inci_name, c.chem_unit
+    SELECT
+      pod.pod_id,
+      COALESCE(c.chem_name, CONCAT('[', pod.chem_id, ']')) AS chem_name,
+      COALESCE(po.order_lot, '-')                          AS order_lot,
+      COALESCE(cp.company_name, '-')                       AS company_name,
+      pod.orderuse,
+      pod.chem_price,
+      pod.orderbuy,
+      pod.coa,
+      pod.msds
     FROM productorderdetail pod
-    LEFT JOIN chem c ON c.chem_id = pod.chem_id
+    LEFT JOIN chem         c  ON c.chem_id      = pod.chem_id
+    LEFT JOIN productorder po ON po.proorder_id = pod.proorder_id
+    LEFT JOIN company      cp ON cp.company_id  = pod.company_id
     WHERE pod.proorder_id = ?
     ORDER BY pod.pod_id ASC
   `;
   connection.query(sql, [proorderId], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
-    res.json({ items: rows || [] });
+    res.json(rows || []);
   });
 });
 
-// UPDATE
+
+/* =========================
+ * UPDATE
+ * ========================= */
 router.patch('/update/:id', (req, res) => {
   const id = req.params.id;
   const {
@@ -143,9 +226,9 @@ router.patch('/update/:id', (req, res) => {
 
   connection.query(
     `UPDATE productorderdetail SET
-    prodetail_id = ?, chem_id = ?, proorder_id = ?, company_id = ?, 
-    orderuse = ?, orderbuy = ?, chem_price = ?, coa = ?, msds = ?
-    WHERE pod_id = ?`,
+      prodetail_id = ?, chem_id = ?, proorder_id = ?, company_id = ?,
+      orderuse = ?, orderbuy = ?, chem_price = ?, coa = ?, msds = ?
+     WHERE pod_id = ?`,
     [prodetail_id, chem_id, proorder_id, company_id, orderuse, orderbuy, chem_price, coa, msds, id],
     (err) => {
       if (err) return res.status(400).json({ error: err.message });
@@ -154,14 +237,21 @@ router.patch('/update/:id', (req, res) => {
   );
 });
 
-// DELETE
+
+/* =========================
+ * DELETE
+ * ========================= */
 router.delete('/delete/:id', (req, res) => {
   const id = req.params.id;
-  connection.query("DELETE FROM productorderdetail WHERE pod_id = ?", [id], (err, result) => {
-    if (err) return res.status(400).json({ error: err.message });
-    if (result.affectedRows === 0) return res.status(404).json({ message: "ProductOrderDetail not found" });
-    res.status(200).json({ message: "ProductOrderDetail deleted successfully" });
-  });
+  connection.query(
+    "DELETE FROM productorderdetail WHERE pod_id = ?",
+    [id],
+    (err, result) => {
+      if (err) return res.status(400).json({ error: err.message });
+      if (result.affectedRows === 0) return res.status(404).json({ message: "ProductOrderDetail not found" });
+      res.status(200).json({ message: "ProductOrderDetail deleted successfully" });
+    }
+  );
 });
 
 module.exports = router;

@@ -1,261 +1,258 @@
-// routes/productorderdetail.js
-const express = require('express');
-const router = express.Router();
-const connection = require('../config/db');
+// /public/js/productorderdetail-index.js
+document.addEventListener("DOMContentLoaded", () => {
+  const tbody = document.getElementById("productorderdetail-tbody");
+  const searchInput = document.getElementById("searchInput");
+  const searchBtn = document.getElementById("searchBtn");
+  const pager = document.getElementById("productorderdetail-pagination");
+  const tableWrapper = document.getElementById("productorderdetail-table-wrapper");
 
-// ---------- CREATE (เหมือนเดิม) ----------
-router.post('/create', (req, res) => {
-  let {
-    prodetail_id,
-    chem_id,
-    proorder_id,
-    company_id,
-    orderuse,
-    orderbuy,
-    chem_price,
-    coa,
-    msds
-  } = req.body || {};
+  if (!tbody) return;
 
-  if (!chem_id || !proorder_id || !Number.isFinite(Number(orderuse))) {
-    return res.status(400).json({ error: 'proorder_id, chem_id, orderuse are required' });
+  const PAGE_SIZE = 12;
+  let fullData = [];
+  let currentPage = 1;
+
+  // สถานะการเรียง
+  let sortField = null;      // เช่น "pod_id"
+  let sortDirection = "asc"; // "asc" | "desc"
+
+  // Helpers
+  const getParam = (k, d = null) =>
+    new URLSearchParams(location.search).get(k) ?? d;
+
+  const esc = (s) =>
+    String(s ?? "").replace(/[&<>"']/g, (m) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m])
+    );
+
+  const fmtNum = (n) => {
+    const v = Number(n);
+    return Number.isFinite(v) ? v.toLocaleString() : "-";
+  };
+
+  // --- Load data ---
+  async function fetchList(keyword = "") {
+    // รองรับกรองตาม proorder_id ถ้ามีใน URL (?proorder_id=...)
+    const proorderId = getParam("proorder_id", "");
+    const qs = new URLSearchParams();
+    if (keyword) qs.set("q", keyword);
+    if (proorderId) qs.set("proorder_id", proorderId);
+
+    // ปรับ endpoint ตามที่ใช้งานจริงได้เลย
+    const url = qs.toString()
+      ? `/productorderdetail/read?${qs.toString()}`
+      : `/productorderdetail/read`;
+
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("โหลดข้อมูลไม่สำเร็จ");
+    return res.json();
   }
 
-  proorder_id = Number(proorder_id);
-  const useQty = Number(orderuse);
-  const buyQty = Number.isFinite(Number(orderbuy)) ? Number(orderbuy) : useQty;
+  // --- Sorting UI ---
+  function updateSortIcons() {
+    document
+      .querySelectorAll("thead th[data-field] .sort-icon")
+      .forEach((icon) => (icon.className = "bi bi-arrow-down-up sort-icon"));
 
-  const sqlFind = `
-    SELECT pod_id, orderuse, orderbuy
-    FROM productorderdetail
-    WHERE proorder_id = ? AND chem_id = ?
-    LIMIT 1
-  `;
-  connection.query(sqlFind, [proorder_id, chem_id], (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
-
-    if (rows && rows.length) {
-      const row = rows[0];
-      const newUse = Number(row.orderuse || 0) + useQty;
-      const newBuy = Number(row.orderbuy || 0) + buyQty;
-
-      const sqlUpdate = `
-        UPDATE productorderdetail
-        SET
-          orderuse      = ?,
-          orderbuy      = ?,
-          prodetail_id  = COALESCE(?, prodetail_id),
-          company_id    = COALESCE(?, company_id),
-          chem_price    = COALESCE(?, chem_price),
-          coa           = COALESCE(?, coa),
-          msds          = COALESCE(?, msds)
-        WHERE pod_id = ?
-      `;
-      connection.query(
-        sqlUpdate,
-        [newUse, newBuy, prodetail_id ?? null, company_id ?? null, chem_price ?? null, coa ?? null, msds ?? null, row.pod_id],
-        (err2) => {
-          if (err2) return res.status(500).json({ error: err2.message });
-          return res.status(200).json({ message: 'updated', pod_id: row.pod_id, orderuse: newUse, orderbuy: newBuy });
-        }
+    if (sortField) {
+      const active = document.querySelector(
+        `thead th[data-field="${sortField}"] .sort-icon`
       );
+      if (active) {
+        active.className =
+          sortDirection === "asc"
+            ? "bi bi-arrow-up sort-icon"
+            : "bi bi-arrow-down sort-icon";
+      }
+    }
+  }
+
+  function sortData(field) {
+    if (sortField === field) {
+      sortDirection = sortDirection === "asc" ? "desc" : "asc";
+    } else {
+      sortField = field;
+      sortDirection = "asc";
+    }
+
+    fullData.sort((a, b) => {
+      let A = a?.[field];
+      let B = b?.[field];
+
+      // null/undefined ไปท้าย/ต้นตามทิศ
+      if (A == null && B == null) return 0;
+      if (A == null) return sortDirection === "asc" ? -1 : 1;
+      if (B == null) return sortDirection === "asc" ? 1 : -1;
+
+      const nA = Number(A);
+      const nB = Number(B);
+      const numeric = !Number.isNaN(nA) && !Number.isNaN(nB);
+
+      if (numeric) {
+        if (nA < nB) return sortDirection === "asc" ? -1 : 1;
+        if (nA > nB) return sortDirection === "asc" ? 1 : -1;
+        return 0;
+      }
+
+      const sA = String(A).toLowerCase();
+      const sB = String(B).toLowerCase();
+      if (sA < sB) return sortDirection === "asc" ? -1 : 1;
+      if (sA > sB) return sortDirection === "asc" ? 1 : -1;
+      return 0;
+    });
+
+    updateSortIcons();
+    renderTablePage(fullData, 1);
+  }
+
+function renderTablePage(data, page = 1) {
+  const total = data.length;
+  if (total === 0) {
+    if (tableWrapper) tableWrapper.style.display = "none";
+    if (pager) pager.innerHTML = "";
+    tbody.innerHTML = "";
+    return;
+  }
+  if (tableWrapper) tableWrapper.style.display = "";
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  currentPage = Math.min(Math.max(1, page), totalPages);
+
+  const start = (currentPage - 1) * PAGE_SIZE;
+  const end = start + PAGE_SIZE;
+  const items = data.slice(start, end);
+
+  const html = items.map(x => `
+    <tr>
+      <td>${esc(x.chem_name)}</td>
+      <td>${esc(x.order_lot)}</td>
+      <td>${esc(x.company_name)}</td>
+      <td>${fmtNum(x.orderuse)}</td>
+      <td>${fmtNum(x.chem_price)}</td>
+      <td>${fmtNum(x.orderbuy)}</td>
+      <td>${esc(x.coa)}</td>
+      <td>${esc(x.msds)}</td>
+      <td class="text-nowrap">
+        <a href="/productorderdetail/detail.html?id=${encodeURIComponent(x.pod_id)}"
+           class="btn btn-sm text-white"
+           style="background-color:#00d312; border-color:#00d312;"
+           title="ดูรายละเอียด">📋</a>
+        <a href="/productorderdetail/edit.html?id=${encodeURIComponent(x.pod_id)}"
+           class="btn btn-dark btn-sm btn-edit"
+           data-id="${esc(x.pod_id)}"
+           title="แก้ไข">
+           <i class="bi bi-pencil"></i>
+        </a>
+      </td>
+    </tr>
+  `).join("");
+
+  tbody.innerHTML = html;
+  renderPagination(totalPages);
+}
+
+  function renderPagination(totalPages) {
+    if (!pager) return;
+
+    if (totalPages <= 1) {
+      pager.innerHTML = "";
       return;
     }
 
-    const sqlInsert = `
-      INSERT INTO productorderdetail
-        (prodetail_id, chem_id, proorder_id, company_id, orderuse, orderbuy, chem_price, coa, msds)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `;
-    connection.query(
-      sqlInsert,
-      [
-        prodetail_id ?? null,
-        chem_id,
-        proorder_id,
-        company_id ?? null,
-        useQty,
-        buyQty,
-        chem_price ?? null,
-        coa ?? null,
-        msds ?? null
-      ],
-      (err3, result) => {
-        if (err3) return res.status(500).json({ error: err3.message });
-        return res.status(201).json({ message: 'created', pod_id: result.insertId });
-      }
-    );
-  });
-});
+    const prevDisabled = currentPage === 1 ? "disabled" : "";
+    const nextDisabled = currentPage === totalPages ? "disabled" : "";
 
+    const pages = [];
+    const windowSize = 2;
+    const addPage = (p) =>
+      pages.push(
+        `<li class="page-item ${p === currentPage ? "active" : ""}">
+           <a class="page-link" href="#" data-page="${p}">${p}</a>
+         </li>`
+      );
 
-// ---------- READ (JOIN + คอลัมน์เรียงลำดับตามที่ขอ) ----------
-// รองรับ query:
-//  - q= ค้นหา (chem_name, company_name, order_lot)
-//  - proorder_id= กรองตามใบสั่งผลิต
-//  - sort= ฟิลด์เรียง (chem_name|order_lot|company_name|orderuse|chem_price|orderbuy)
-//  - order= asc|desc
-router.get('/read', (req, res) => {
-  const { q = '', proorder_id, sort, order } = req.query;
+    addPage(1);
+    if (currentPage - windowSize > 2)
+      pages.push(`<li class="page-item disabled"><span class="page-link">…</span></li>`);
 
-  // map ฟิลด์ที่อนุญาตให้ sort
-  const SORT_MAP = {
-    chem_name: 'c.chem_name',
-    order_lot: 'po.order_lot',
-    company_name: 'cp.company_name',
-    orderuse: 'pod.orderuse',
-    chem_price: 'pod.chem_price',
-    orderbuy: 'pod.orderbuy'
-  };
-  const sortCol = SORT_MAP[sort] || 'pod.pod_id';
-  const sortDir = (String(order || '').toLowerCase() === 'asc') ? 'ASC' : 'DESC';
+    const start = Math.max(2, currentPage - windowSize);
+    const end = Math.min(totalPages - 1, currentPage + windowSize);
+    for (let p = start; p <= end; p++) addPage(p);
 
-  const params = [];
-  const where = [];
+    if (currentPage + windowSize < totalPages - 1)
+      pages.push(`<li class="page-item disabled"><span class="page-link">…</span></li>`);
 
-  if (proorder_id) {
-    where.push('pod.proorder_id = ?');
-    params.push(Number(proorder_id));
+    if (totalPages > 1) addPage(totalPages);
+
+    pager.innerHTML = `
+      <ul class="pagination justify-content-center mb-0">
+        <li class="page-item ${prevDisabled}">
+          <a class="page-link" href="#" data-page="${currentPage - 1}">«</a>
+        </li>
+        ${pages.join("")}
+        <li class="page-item ${nextDisabled}">
+          <a class="page-link" href="#" data-page="${currentPage + 1}">»</a>
+        </li>
+      </ul>`;
+
+    pager.querySelectorAll("a.page-link").forEach((a) => {
+      a.addEventListener("click", (e) => {
+        e.preventDefault();
+        const p = Number(a.getAttribute("data-page"));
+        if (!Number.isNaN(p)) renderTablePage(fullData, p);
+      });
+    });
   }
-  if (q) {
-    where.push('(c.chem_name LIKE ? OR cp.company_name LIKE ? OR po.order_lot LIKE ?)');
-    const like = `%${q}%`;
-    params.push(like, like, like);
+async function load(keyword = "") {
+  try {
+    const data = await fetchList(keyword);
+    console.log('[POD] sample row =', data?.[0]);  // <-- ดูว่า api ส่งอะไรมาบ้าง
+
+    fullData = Array.isArray(data) ? data : [];
+    updateSortIcons();
+    renderTablePage(fullData, 1);
+  } catch (e) {
+    console.error(e);
+    if (tableWrapper) tableWrapper.style.display = "none";
+    if (pager) pager.innerHTML = "";
+    tbody.innerHTML =
+      `<tr><td colspan="11" class="text-center text-danger">เกิดข้อผิดพลาดในการโหลดข้อมูล</td></tr>`;
+  }
+}
+
+
+  load();
+
+  if (searchBtn && searchInput) {
+    searchBtn.addEventListener("click", () => load(searchInput.value.trim()));
+    searchInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") load(searchInput.value.trim());
+    });
   }
 
-  const sql = `
-    SELECT
-      pod.pod_id,
-      c.chem_name,
-      po.order_lot,
-      cp.company_name,
-      pod.orderuse,
-      pod.chem_price,
-      pod.orderbuy,
-      pod.coa,
-      pod.msds
-    FROM productorderdetail pod
-    LEFT JOIN chem c       ON c.chem_id = pod.chem_id
-    LEFT JOIN productorder po ON po.proorder_id = pod.proorder_id
-    LEFT JOIN company cp   ON cp.company_id = pod.company_id
-    ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
-    ORDER BY ${sortCol} ${sortDir}, pod.pod_id DESC
-  `;
-
-  connection.query(sql, params, (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
-    // คืนเป็น array ตรงๆ ให้ตาราง render ได้เลย
-    res.json(Array.isArray(rows) ? rows : []);
-  });
-});
-
-
-// ---------- READ BY ID (JOIN เช่นเดียวกัน) ----------
-router.get('/read/:id', (req, res) => {
-  const id = Number(req.params.id);
-  if (!id) return res.status(400).json({ error: 'id is required' });
-
-  const sql = `
-    SELECT
-      pod.pod_id,
-      c.chem_name,
-      po.order_lot,
-      cp.company_name,
-      pod.orderuse,
-      pod.chem_price,
-      pod.orderbuy,
-      pod.coa,
-      pod.msds,
-      -- ส่ง id อ้างอิงเผื่อหน้าแก้ไข
-      pod.chem_id,
-      pod.proorder_id,
-      pod.company_id
-    FROM productorderdetail pod
-    LEFT JOIN chem c       ON c.chem_id = pod.chem_id
-    LEFT JOIN productorder po ON po.proorder_id = pod.proorder_id
-    LEFT JOIN company cp   ON cp.company_id = pod.company_id
-    WHERE pod.pod_id = ?
-    LIMIT 1
-  `;
-  connection.query(sql, [id], (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
-    if (!rows || rows.length === 0) return res.status(404).json({ message: 'not found' });
-    res.json(rows[0]);
-  });
-});
-
-
-// ---------- READ BY ORDER (คงไว้ แต่ปรับคอลัมน์ให้ตรงที่ขอ) ----------
-router.get('/by-order/:proorderId', (req, res) => {
-  const proorderId = Number(req.params.proorderId);
-  if (!proorderId) return res.status(400).json({ error: 'proorderId is required' });
-
-  const sql = `
-    SELECT
-      pod.pod_id,
-      c.chem_name,
-      po.order_lot,
-      cp.company_name,
-      pod.orderuse,
-      pod.chem_price,
-      pod.orderbuy,
-      pod.coa,
-      pod.msds
-    FROM productorderdetail pod
-    LEFT JOIN chem c       ON c.chem_id = pod.chem_id
-    LEFT JOIN productorder po ON po.proorder_id = pod.proorder_id
-    LEFT JOIN company cp   ON cp.company_id = pod.company_id
-    WHERE pod.proorder_id = ?
-    ORDER BY pod.pod_id ASC
-  `;
-  connection.query(sql, [proorderId], (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json(Array.isArray(rows) ? rows : []);
-  });
-});
-
-
-// ---------- UPDATE (เหมือนเดิม) ----------
-router.patch('/update/:id', (req, res) => {
-  const id = req.params.id;
-  const {
-    prodetail_id,
-    chem_id,
-    proorder_id,
-    company_id,
-    orderuse,
-    orderbuy,
-    chem_price,
-    coa,
-    msds
-  } = req.body;
-
-  connection.query(
-    `UPDATE productorderdetail SET
-      prodetail_id = ?, chem_id = ?, proorder_id = ?, company_id = ?,
-      orderuse = ?, orderbuy = ?, chem_price = ?, coa = ?, msds = ?
-     WHERE pod_id = ?`,
-    [prodetail_id, chem_id, proorder_id, company_id, orderuse, orderbuy, chem_price, coa, msds, id],
-    (err) => {
-      if (err) return res.status(400).json({ error: err.message });
-      res.status(200).json({ message: "ProductOrderDetail updated successfully" });
+  // คลิกหัวตารางเพื่อเรียง
+  document.querySelectorAll("thead th[data-field]").forEach((th) => {
+    th.style.cursor = "pointer";
+    // ถ้าต้องการไอคอนบนหัวตาราง ให้มี <i class="sort-icon ..."></i> ภายใน th เหมือน chem-index.js
+    if (!th.querySelector(".sort-icon")) {
+      const i = document.createElement("i");
+      i.className = "bi bi-arrow-down-up sort-icon ms-1";
+      th.appendChild(i);
     }
-  );
+    th.addEventListener("click", () => {
+      const field = th.getAttribute("data-field");
+      sortData(field);
+    });
+  });
+
+  // เดลิเกตกดแก้ไข
+  tbody.addEventListener("click", (e) => {
+    const btn = e.target.closest(".btn-edit");
+    if (!btn) return;
+    const id = btn.getAttribute("data-id");
+    if (!id) return;
+    location.href = `/productorderdetail/edit.html?id=${encodeURIComponent(id)}`;
+  });
 });
 
 
-// ---------- DELETE (เหมือนเดิม) ----------
-router.delete('/delete/:id', (req, res) => {
-  const id = req.params.id;
-  connection.query(
-    "DELETE FROM productorderdetail WHERE pod_id = ?",
-    [id],
-    (err, result) => {
-      if (err) return res.status(400).json({ error: err.message });
-      if (result.affectedRows === 0) return res.status(404).json({ message: "ProductOrderDetail not found" });
-      res.status(200).json({ message: "ProductOrderDetail deleted successfully" });
-    }
-  );
-});
-
-module.exports = router;
