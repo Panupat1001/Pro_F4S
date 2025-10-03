@@ -3,14 +3,12 @@ const express = require('express');
 const router = express.Router();
 const connection = require('../config/db');
 
-/* =========================
- * CREATE (เพิ่มใหม่ หรือบวกเพิ่มถ้ามีอยู่แล้ว)
- * ========================= */
+// CREATE (เพิ่มใหม่ หรือบวกเพิ่มถ้ามีอยู่แล้ว)
 router.post('/create', (req, res) => {
   let {
     prodetail_id,
     chem_id,
-    proorder_id,
+    proorder_id,   // อาจเป็น null
     company_id,
     orderuse,
     orderbuy,
@@ -19,21 +17,24 @@ router.post('/create', (req, res) => {
     msds
   } = req.body || {};
 
-  if (!chem_id || !proorder_id || !Number.isFinite(Number(orderuse))) {
-    return res.status(400).json({ error: 'proorder_id, chem_id, orderuse are required' });
+  // ❌ เดิม: if (!chem_id || !proorder_id || !Number.isFinite(Number(orderuse)))
+  // ✅ แก้: ไม่บังคับ proorder_id แล้ว
+  if (!chem_id || !Number.isFinite(Number(orderuse))) {
+    return res.status(400).json({ error: 'chem_id และ orderuse จำเป็นต้องมี' });
   }
 
-  proorder_id = Number(proorder_id);
   const useQty = Number(orderuse);
   const buyQty = Number.isFinite(Number(orderbuy)) ? Number(orderbuy) : useQty;
 
+  // หาแถวเดิมก่อน → ถ้า proorder_id = null ให้เช็ก IS NULL ด้วย
   const sqlFind = `
     SELECT pod_id, orderuse, orderbuy
     FROM productorderdetail
-    WHERE proorder_id = ? AND chem_id = ?
+    WHERE chem_id = ?
+      AND ( ( ? IS NULL AND proorder_id IS NULL ) OR proorder_id = ? )
     LIMIT 1
   `;
-  connection.query(sqlFind, [proorder_id, chem_id], (err, rows) => {
+  connection.query(sqlFind, [chem_id, proorder_id, proorder_id], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
 
     // ถ้ามี → update บวกเพิ่ม
@@ -59,7 +60,12 @@ router.post('/create', (req, res) => {
         [newUse, newBuy, prodetail_id ?? null, company_id ?? null, chem_price ?? null, coa ?? null, msds ?? null, row.pod_id],
         (err2) => {
           if (err2) return res.status(500).json({ error: err2.message });
-          return res.status(200).json({ message: 'updated', pod_id: row.pod_id, orderuse: newUse, orderbuy: newBuy });
+          return res.status(200).json({
+            message: 'updated',
+            pod_id: row.pod_id,
+            orderuse: newUse,
+            orderbuy: newBuy
+          });
         }
       );
       return;
@@ -76,7 +82,7 @@ router.post('/create', (req, res) => {
       [
         prodetail_id ?? null,
         chem_id,
-        proorder_id,
+        proorder_id ?? null,   // ✅ ใส่ null ได้เลย
         company_id ?? null,
         useQty,
         buyQty,
@@ -91,6 +97,7 @@ router.post('/create', (req, res) => {
     );
   });
 });
+
 
 
 /* =========================

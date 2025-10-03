@@ -1,4 +1,4 @@
-// /public/js/productorderdetail-create.js (no /api/*; no ?id= required)
+// /public/js/productorderdetail-create.js  (no proorder_id)
 document.addEventListener("DOMContentLoaded", () => {
   const $ = (id) => document.getElementById(id);
   const toNum = (v, d = 0) => {
@@ -10,24 +10,20 @@ document.addEventListener("DOMContentLoaded", () => {
     Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
-  // ===== Back button (optional) =====
+  // 🆕 formatter สำหรับตัวเลขธรรมดา (ไว้โชว์ reorder สวย ๆ)
+  const fmt = (n) => Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
+
+  // back
   $("btnBack")?.addEventListener("click", (e) => {
     e.preventDefault();
     if (document.referrer) history.back();
     else location.href = "/productorder/index.html";
   });
 
-  // ===== Load options using existing routes only (no /api/*) =====
+  // โหลด option จาก route ที่มีอยู่
   async function loadOptions() {
-    // Try these in order (stop at first that returns non-empty list)
-    const chemUrls = [
-      "/chem/read-all?limit=5000",
-      "/chem/read",             // returns all in your route
-      "/chem/search?q=a"        // fallback
-    ];
-    const companyUrls = [
-      "/company/read"           // returns all
-    ];
+    const chemUrls = ["/chem/read-all?limit=5000", "/chem/read", "/chem/search?q=a"];
+    const companyUrls = ["/company/read"];
 
     async function tryFetch(urls, mapper) {
       for (const url of urls) {
@@ -44,9 +40,7 @@ document.addEventListener("DOMContentLoaded", () => {
           if (!arr || !arr.length) continue;
           const mapped = arr.map(mapper).filter(Boolean);
           if (mapped.length) return mapped;
-        } catch {
-          // ignore and try next
-        }
+        } catch {}
       }
       return [];
     }
@@ -87,6 +81,11 @@ document.addEventListener("DOMContentLoaded", () => {
       op.textContent = x.name;
       compSel.appendChild(op);
     });
+
+    // 🆕 โหลดค่า reorder ของเคมีตัวแรกทันที (ถ้ามีค่า selected อยู่แล้ว)
+    if (chemSel?.value) {
+      await updateChemReorder(+chemSel.value);
+    }
   }
 
   loadOptions().catch((err) => {
@@ -94,10 +93,15 @@ document.addEventListener("DOMContentLoaded", () => {
     alert(err.message || "โหลดตัวเลือกไม่สำเร็จ");
   });
 
-  // ===== Calculate chem_price (price per gram) from orderbuy / orderuse =====
-  const totalInput = $("orderbuy");   // user inputs total price
-  const qtyInput   = $("orderuse");   // grams
-  const unitBox    = $("chem_price"); // price per gram (readonly recommended)
+  // คำนวณราคา/กรัม = orderbuy / orderuse
+  const totalInput = $("orderbuy");
+  const qtyInput   = $("orderuse");
+  const unitBox    = $("chem_price");
+
+  // 🆕 ป้องกันพิมพ์เองในช่องราคา/กรัม (ให้ระบบคำนวณ)
+  if (unitBox) {
+    unitBox.readOnly = true;
+  }
 
   function recalc() {
     const total = toNum(totalInput.value, 0);
@@ -108,44 +112,94 @@ document.addEventListener("DOMContentLoaded", () => {
   totalInput.addEventListener("input", recalc);
   qtyInput.addEventListener("input", recalc);
 
-  // ===== Upload buttons (placeholder) =====
+async function updateChemReorder(chemId) {
+  const help = document.getElementById('orderuse_help');
+  const qtyInput = document.getElementById('orderuse');
+  if (!chemId) {
+    help && (help.textContent = 'reorder');
+    qtyInput?.setAttribute('placeholder', 'เช่น 2500');
+    return;
+  }
+
+  // เรียงลำดับด้วยเส้นทางที่ "มีจริง" ในโปรเจ็กต์คุณ
+  const candidates = [
+    `/chem/detail?id=${chemId}`,   // คืน object เดียว
+    `/chem/read/${chemId}`,        // คืน array
+    // สำรอง ถ้าคุณเผื่อเพิ่มไว้ทีหลัง
+    `/chem/${chemId}`,
+  ];
+
+  let reorder = null, ok = false;
+  for (const url of candidates) {
+    try {
+      const res = await fetch(url, { headers: { Accept: 'application/json' } });
+      if (!res.ok) continue;
+      const data = await res.json();
+
+      // map ให้ครอบ
+      const row = Array.isArray(data) ? (data[0] || null) : data;
+      if (row) {
+        reorder =
+          row.chem_reorder ??
+          row.CHEM_REORDER ??
+          row.reorder ??
+          row.data?.chem_reorder ??
+          null;
+        ok = true;
+        break;
+      }
+    } catch {}
+  }
+
+  const fmt = (n) => Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
+  if (ok && reorder != null) {
+    help && (help.textContent = `reorder: ${fmt(reorder)} กรัม`);
+    qtyInput && (qtyInput.placeholder = String(reorder));
+    // qtyInput.min = String(Number(reorder) || 0); // ถ้าต้องการบังคับขั้นต่ำ
+  } else {
+    help && (help.textContent = 'reorder: -');
+    qtyInput?.setAttribute('placeholder', 'เช่น 2500');
+  }
+}
+
+  // 🆕 เวลาเปลี่ยนเคมีให้โหลด reorder ใหม่
+  $("chem_id")?.addEventListener("change", (e) => {
+    const val = Number(e.target.value || 0);
+    updateChemReorder(val);
+  });
+
+  // ปุ่มอัปโหลด (placeholder)
   $("btnUploadCoa")?.addEventListener("click", () => alert("เชื่อมต่ออัปโหลด COA ตามระบบของคุณ"));
   $("btnUploadMsds")?.addEventListener("click", () => alert("เชื่อมต่ออัปโหลด MSDS ตามระบบของคุณ"));
 
-  // Optional proorder_id (hidden or select). If absent/empty -> null
-  function getOptionalProorderId() {
-    const el = $("proorder_id");
-    if (!el) return null;
-    const v = toNum(el.value, 0);
-    return v > 0 ? v : null;
-  }
-
-  // ===== Submit =====
+  // บันทึก
   $("formCreate").addEventListener("submit", async (e) => {
     e.preventDefault();
 
+    const chem_id    = toNum(($("chem_id").value || 0), 0);
+    const company_id = toNum(($("company_id").value || 0), 0);
     const orderuse   = toNum(qtyInput.value, 0);
     const orderbuy   = toNum(totalInput.value, 0);
     const chem_price = orderuse > 0 ? round2(orderbuy / orderuse) : 0;
 
+    if (!chem_id)    return alert("กรุณาเลือกชื่อทางการค้า");
+    if (!company_id) return alert("กรุณาเลือกชื่อบริษัทที่ขายสารเคมี");
+    if (orderuse < 200) return alert("ปริมาณที่สั่งต้องไม่น้อยกว่า 200");
+
     const payload = {
       prodetail_id: null,
-      chem_id: Number(($("chem_id").value || 0)),
-      proorder_id: getOptionalProorderId(),     // nullable
-      company_id: Number(($("company_id").value || 0)),
+      chem_id,
+      proorder_id: null,     // ✅ ไม่ส่งค่า (ตามที่ต้องการ)
+      company_id,
       orderuse,
-      chem_price,   // computed
-      orderbuy,     // user input
-      coa: ($("coa").value || "").trim() || null,
+      chem_price,            // คำนวณ
+      orderbuy,              // ราคารวมที่จ่าย
+      coa:  ($("coa").value || "").trim() || null,
       msds: ($("msds").value || "").trim() || null,
     };
 
-    if (!payload.chem_id)    return alert("กรุณาเลือกชื่อทางการค้า");
-    if (!payload.company_id) return alert("กรุณาเลือกชื่อบริษัทที่ขายสารเคมี");
-    if (payload.orderuse < 200) return alert("ปริมาณที่สั่งต้องไม่น้อยกว่า 200");
-
     try {
-      const res = await fetch("/api/productorderdetail/create", {
+      const res = await fetch("/productorderdetail/create", {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify(payload),
@@ -154,9 +208,8 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!res.ok) throw new Error(data.error || `บันทึกไม่สำเร็จ (${res.status})`);
 
       alert("บันทึกสำเร็จ");
-      const pid = payload.proorder_id;
-      if (pid) location.href = `/productorderdetail/index.html?id=${pid}`;
-      else     location.href = `/productorderdetail/index.html`;
+      // ✅ กลับหน้ารายการแบบไม่กรอง
+      location.href = `/productorderdetail/index.html`;
     } catch (err) {
       console.error(err);
       alert(err.message || "บันทึกไม่สำเร็จ");
