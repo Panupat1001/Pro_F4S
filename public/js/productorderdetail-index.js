@@ -38,7 +38,6 @@ document.addEventListener("DOMContentLoaded", () => {
     if (keyword) qs.set("q", keyword);
     if (proorderId) qs.set("proorder_id", proorderId);
 
-    // ปรับ endpoint ตามที่ใช้งานจริงได้เลย
     const url = qs.toString()
       ? `/productorderdetail/read?${qs.toString()}`
       : `/productorderdetail/read`;
@@ -79,7 +78,6 @@ document.addEventListener("DOMContentLoaded", () => {
       let A = a?.[field];
       let B = b?.[field];
 
-      // null/undefined ไปท้าย/ต้นตามทิศ
       if (A == null && B == null) return 0;
       if (A == null) return sortDirection === "asc" ? -1 : 1;
       if (B == null) return sortDirection === "asc" ? 1 : -1;
@@ -122,34 +120,52 @@ function renderTablePage(data, page = 1) {
   const end = start + PAGE_SIZE;
   const items = data.slice(start, end);
 
-  const html = items.map(x => `
-    <tr>
-      <td>${esc(x.chem_name)}</td>
-      <td>${esc(x.order_lot)}</td>
-      <td>${esc(x.company_name)}</td>
-      <td>${fmtNum(x.orderuse)}</td>
-      <td>${fmtNum(x.chem_price)}</td>
-      <td>${fmtNum(x.orderbuy)}</td>
-      <td>${esc(x.coa)}</td>
-      <td>${esc(x.msds)}</td>
-      <td class="text-nowrap">
-        <a href="/productorderdetail/detail.html?id=${encodeURIComponent(x.pod_id)}"
-           class="btn btn-sm text-white"
-           style="background-color:#00d312; border-color:#00d312;"
-           title="สั่งซื้อ">สั่งซื้อ</a>
-        <a href="/productorderdetail/edit.html?id=${encodeURIComponent(x.pod_id)}"
-           class="btn btn-dark btn-sm btn-edit"
-           data-id="${esc(x.pod_id)}"
-           title="แก้ไข">
-           <i class="bi bi-pencil"></i>
-        </a>
-      </td>
-    </tr>
-  `).join("");
+  const html = items.map(x => {
+const price = Number(x.chem_price);
+const disableBuy = Number.isFinite(price) && price > 0;
+
+// ปุ่มสั่งซื้อ: ถ้า chem_price > 0 ให้เป็นปุ่มเทา + disabled
+const buyBtn = disableBuy
+  ? `<a class="btn btn-sm btn-secondary disabled"
+         href="javascript:void(0)"
+         tabindex="-1"
+         aria-disabled="true"
+         title="มีราคาแล้ว — ปิดการสั่งซื้อ">
+       สั่งซื้อ
+     </a>`
+  : `<a class="btn btn-sm btn-warning"
+         href="/productorderdetail/buy.html?chem_id=${encodeURIComponent(x.chem_id)}&chem_name=${encodeURIComponent(x.chem_name)}">
+       สั่งซื้อ
+     </a>`;
+
+
+    return `
+      <tr>
+        <td>${esc(x.chem_name)}</td>
+        <td>${esc(x.order_lot)}</td>
+        <td>${esc(x.company_name)}</td>
+        <td>${fmtNum(x.orderuse)}</td>
+        <td>${fmtNum(x.chem_price)}</td>
+        <td>${fmtNum(x.orderbuy)}</td>
+        <td>${esc(x.coa)}</td>
+        <td>${esc(x.msds)}</td>
+        <td class="text-nowrap">
+          ${buyBtn}
+          <a href="/productorderdetail/edit.html?id=${encodeURIComponent(x.pod_id)}"
+             class="btn btn-dark btn-sm btn-edit"
+             data-id="${esc(x.pod_id)}"
+             title="แก้ไข">
+             <i class="bi bi-pencil"></i>
+          </a>
+        </td>
+      </tr>
+    `;
+  }).join("");
 
   tbody.innerHTML = html;
   renderPagination(totalPages);
 }
+
 
   function renderPagination(totalPages) {
     if (!pager) return;
@@ -203,23 +219,23 @@ function renderTablePage(data, page = 1) {
       });
     });
   }
-async function load(keyword = "") {
-  try {
-    const data = await fetchList(keyword);
-    console.log('[POD] sample row =', data?.[0]);  // <-- ดูว่า api ส่งอะไรมาบ้าง
 
-    fullData = Array.isArray(data) ? data : [];
-    updateSortIcons();
-    renderTablePage(fullData, 1);
-  } catch (e) {
-    console.error(e);
-    if (tableWrapper) tableWrapper.style.display = "none";
-    if (pager) pager.innerHTML = "";
-    tbody.innerHTML =
-      `<tr><td colspan="11" class="text-center text-danger">เกิดข้อผิดพลาดในการโหลดข้อมูล</td></tr>`;
+  async function load(keyword = "") {
+    try {
+      const data = await fetchList(keyword);
+      console.log('[POD] sample row =', data?.[0]);  // debug
+
+      fullData = Array.isArray(data) ? data : [];
+      updateSortIcons();
+      renderTablePage(fullData, 1);
+    } catch (e) {
+      console.error(e);
+      if (tableWrapper) tableWrapper.style.display = "none";
+      if (pager) pager.innerHTML = "";
+      tbody.innerHTML =
+        `<tr><td colspan="11" class="text-center text-danger">เกิดข้อผิดพลาดในการโหลดข้อมูล</td></tr>`;
+    }
   }
-}
-
 
   load();
 
@@ -233,7 +249,6 @@ async function load(keyword = "") {
   // คลิกหัวตารางเพื่อเรียง
   document.querySelectorAll("thead th[data-field]").forEach((th) => {
     th.style.cursor = "pointer";
-    // ถ้าต้องการไอคอนบนหัวตาราง ให้มี <i class="sort-icon ..."></i> ภายใน th เหมือน chem-index.js
     if (!th.querySelector(".sort-icon")) {
       const i = document.createElement("i");
       i.className = "bi bi-arrow-down-up sort-icon ms-1";
@@ -254,5 +269,3 @@ async function load(keyword = "") {
     location.href = `/productorderdetail/edit.html?id=${encodeURIComponent(id)}`;
   });
 });
-
-

@@ -169,24 +169,32 @@ async function fillMissingChemNames(rows){
   }));
 }
 
+// ---------- คำนวณ Need / Actual ----------
+// need = (% * qty) / 100
+// actual = max( need - chem_quantity, 0 )
 function computeChemLines(chems, orderQtyGram) {
   const qty = Number(orderQtyGram || 0);
   return chems.map((r) => {
     const percent = Number(r.chem_percent || 0);
+    const hasPercent = Number.isFinite(percent) && percent > 0;
+
     const displayName = (r.chem_name && String(r.chem_name).trim() !== "")
       ? r.chem_name
       : `ID ${r.chem_id}`;
-    const need = percent * qty * 0.01;
-    const actual = need * 1.2;
+
+    const need = hasPercent ? (percent * qty * 0.01) : 0;
     const remainRaw = (r.chem_quantity ?? r.chem_remain ?? r.remain ?? r.chem_stock ?? 0);
+    const actual = Math.max(need - Number(remainRaw || 0), 0);
+
     return {
       chemId: r.chem_id,
       prodetailId: r.prodetail_id,
       name: displayName,
+      percent,
+      hasPercent,
       need,
-      actual,
       remain: Number(remainRaw),
-      noPercent: !(Number.isFinite(percent) && percent > 0)
+      actual
     };
   });
 }
@@ -284,28 +292,39 @@ document.addEventListener("DOMContentLoaded", async () => {
     tbody.innerHTML = list.length
       ? list.map((x) => {
           const already = !!orderedMap[x.chemId];
+          const noNeed  = !(x.need > 0);
+          const noShort = x.actual <= 0;
+          const disable = already || noNeed || noShort;
+
+          const percentCell = x.hasPercent
+            ? `${Number(x.percent).toFixed(2)}%`
+            : `<span class="badge bg-warning text-dark">ไม่มี %</span>`;
+
+          const btnText = already ? 'เพิ่มแล้ว ✓' : (noShort ? 'พอเพียง' : 'สั่งซื้อ');
+
           return `
             <tr data-chem-id="${x.chemId}">
-              <td>${esc(x.name)}${x.noPercent ? '<span class="badge bg-warning text-dark ms-2">ไม่มี %</span>' : ''}</td>
+              <td>${esc(x.name)}</td>
+              <td>${percentCell}</td>
               <td>${Number(x.need).toFixed(2)}</td>
               <td>${Number.isFinite(Number(x.remain)) ? Number(x.remain).toFixed(2) : esc(String(x.remain))}</td>
               <td>${Number(x.actual).toFixed(2)}</td>
               <td class="text-end">
                 <button
                   type="button"
-                  class="btn btn-sm ${already ? 'btn-secondary' : 'btn-success'} order-chem"
+                  class="btn btn-sm ${disable ? 'btn-secondary' : 'btn-success'} order-chem"
                   data-chem-id="${x.chemId}"
                   data-prodetail-id="${x.prodetailId}"
-                  data-qty="${Number(x.need).toFixed(2)}"
+                  data-qty="${Number(x.actual).toFixed(2)}"
                   data-ordered="${already ? '1' : '0'}"
-                  ${already ? 'disabled' : ''}>
-                  ${already ? 'เพิ่มแล้ว ✓' : 'สั่งซื้อ'}
+                  ${disable ? 'disabled' : ''}>
+                  ${btnText}
                 </button>
               </td>
             </tr>
           `;
         }).join("")
-      : `<tr><td colspan="5" class="text-center text-muted">ไม่มีรายการสารเคมี</td></tr>`;
+      : `<tr><td colspan="6" class="text-center text-muted">ไม่มีรายการสารเคมี</td></tr>`;
   }
 
   const alertBox = $("alertBox");
@@ -340,13 +359,13 @@ document.addEventListener('click', async (ev) => {
   ev.preventDefault();
   if (btn.disabled || btn.dataset.busy === '1' || btn.dataset.ordered === '1') return;
 
-  const proorderId = CURRENT_PROORDER_ID || toInt(getParam('id') ?? getParam('proorder_id'), 0);
-  const chemId     = toInt(btn.dataset.chemId, 0);
-  const prodetailId= toInt(btn.dataset.prodetailId, 0);
-  const qty        = Number(btn.dataset.qty || 0);
+  const proorderId  = CURRENT_PROORDER_ID || toInt(getParam('id') ?? getParam('proorder_id'), 0);
+  const chemId      = toInt(btn.dataset.chemId, 0);
+  const prodetailId = toInt(btn.dataset.prodetailId, 0);
+  const qty         = Number(btn.dataset.qty || 0);   // จำนวนที่ “ต้องสั่งเพิ่ม”
 
   if (!proorderId || !chemId || !(qty > 0)) {
-    showAlert('warning', 'ข้อมูลไม่ครบ: proorder_id / chem_id / qty');
+    showAlert('warning', 'ข้อมูลไม่ครบ หรือไม่มีจำนวนที่ต้องสั่งเพิ่ม (qty <= 0)');
     return;
   }
 
@@ -356,7 +375,17 @@ document.addEventListener('click', async (ev) => {
   btn.textContent = 'กำลังเพิ่ม...';
 
   try {
-    const payload = { proorder_id: proorderId, chem_id: chemId, orderuse: qty, prodetail_id: prodetailId || null };
+    // ✅ ส่งเฉพาะ orderuse
+    const payload = {
+      proorder_id: proorderId,
+      chem_id: chemId,
+      orderuse: qty,
+      prodetail_id: prodetailId || null
+    };
+
+    // กันพลาด: ตัด field orderbuy ทิ้งถ้ามีหลงมา
+    delete payload.orderbuy;
+
     await postPOD(payload);
 
     const map = loadOrderedMap(proorderId);
@@ -372,3 +401,4 @@ document.addEventListener('click', async (ev) => {
     showAlert('danger', 'เพิ่มรายการไม่สำเร็จ: ' + e.message);
   }
 });
+

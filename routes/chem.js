@@ -137,5 +137,25 @@ router.get('/search', (req, res) => {
   });
 });
 
+router.patch('/:id/price-gram', (req, res) => {
+  const id = Number(req.params.id);
+  const priceGram = Number(req.body?.price_gram);
+
+  if (!id || !Number.isFinite(priceGram) || priceGram <= 0) {
+    return res.status(400).json({ error: 'ต้องระบุ id และ price_gram (> 0)' });
+  }
+
+  const sql = 'UPDATE chem SET price_gram = ? WHERE chem_id = ?';
+  connection.query(sql, [priceGram, id], (err, result) => {
+    if (err) {
+      console.error('[chem price-gram] UPDATE error:', err.message);
+      return res.status(500).json({ error: err.message });
+    }
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: 'ไม่พบ chem ที่ระบุ' });
+    }
+    return res.json({ message: 'updated', chem_id: id, price_gram: priceGram });
+  });
+});
 
 module.exports = router;

@@ -3,12 +3,12 @@ const express = require('express');
 const router = express.Router();
 const connection = require('../config/db');
 
-// CREATE (เพิ่มใหม่ หรือบวกเพิ่มถ้ามีอยู่แล้ว)
+// routes/productorderdetail.js
 router.post('/create', (req, res) => {
   let {
-    prodetail_id,
+    prodetail_id, // ไม่ใช้
     chem_id,
-    proorder_id,   // อาจเป็น null
+    proorder_id,   // อาจเป็น null ได้
     company_id,
     orderuse,
     orderbuy,
@@ -17,93 +17,46 @@ router.post('/create', (req, res) => {
     msds
   } = req.body || {};
 
-  // ❌ เดิม: if (!chem_id || !proorder_id || !Number.isFinite(Number(orderuse)))
-  // ✅ แก้: ไม่บังคับ proorder_id แล้ว
   if (!chem_id || !Number.isFinite(Number(orderuse))) {
     return res.status(400).json({ error: 'chem_id และ orderuse จำเป็นต้องมี' });
   }
 
   const useQty = Number(orderuse);
   const buyQty = Number.isFinite(Number(orderbuy)) ? Number(orderbuy) : useQty;
+  const unitPrice = Number.isFinite(Number(chem_price)) ? Number(chem_price) :
+                    (useQty > 0 ? (buyQty / useQty) : 0);
 
-  // หาแถวเดิมก่อน → ถ้า proorder_id = null ให้เช็ก IS NULL ด้วย
-  const sqlFind = `
-    SELECT pod_id, orderuse, orderbuy
-    FROM productorderdetail
-    WHERE chem_id = ?
-      AND ( ( ? IS NULL AND proorder_id IS NULL ) OR proorder_id = ? )
-    LIMIT 1
+  // ✅ INSERT เสมอ (ไม่เช็คซ้ำ ไม่บวกเพิ่ม)
+  const sqlInsert = `
+    INSERT INTO productorderdetail
+      (chem_id, proorder_id, company_id, orderuse, orderbuy, chem_price, coa, msds)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `;
-  connection.query(sqlFind, [chem_id, proorder_id, proorder_id], (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
+  const params = [
+    chem_id,
+    proorder_id ?? null,    // ให้เป็น NULL ได้
+    company_id || null,
+    useQty,
+    buyQty,
+    unitPrice,
+    coa || null,
+    msds || null
+  ];
 
-    // ถ้ามี → update บวกเพิ่ม
-    if (rows && rows.length) {
-      const row = rows[0];
-      const newUse = Number(row.orderuse || 0) + useQty;
-      const newBuy = Number(row.orderbuy || 0) + buyQty;
-
-      const sqlUpdate = `
-        UPDATE productorderdetail
-        SET
-          orderuse      = ?,
-          orderbuy      = ?,
-          prodetail_id  = COALESCE(?, prodetail_id),
-          company_id    = COALESCE(?, company_id),
-          chem_price    = COALESCE(?, chem_price),
-          coa           = COALESCE(?, coa),
-          msds          = COALESCE(?, msds)
-        WHERE pod_id = ?
-      `;
-      connection.query(
-        sqlUpdate,
-        [newUse, newBuy, prodetail_id ?? null, company_id ?? null, chem_price ?? null, coa ?? null, msds ?? null, row.pod_id],
-        (err2) => {
-          if (err2) return res.status(500).json({ error: err2.message });
-          return res.status(200).json({
-            message: 'updated',
-            pod_id: row.pod_id,
-            orderuse: newUse,
-            orderbuy: newBuy
-          });
-        }
-      );
-      return;
+  connection.query(sqlInsert, params, (err, result) => {
+    if (err) {
+      console.error('[productorderdetail create] INSERT error:', err.message);
+      return res.status(500).json({ error: err.message });
     }
-
-    // ถ้าไม่มี → insert ใหม่
-    const sqlInsert = `
-      INSERT INTO productorderdetail
-        (prodetail_id, chem_id, proorder_id, company_id, orderuse, orderbuy, chem_price, coa, msds)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `;
-    connection.query(
-      sqlInsert,
-      [
-        prodetail_id ?? null,
-        chem_id,
-        proorder_id ?? null,   // ✅ ใส่ null ได้เลย
-        company_id ?? null,
-        useQty,
-        buyQty,
-        chem_price ?? null,
-        coa ?? null,
-        msds ?? null
-      ],
-      (err3, result) => {
-        if (err3) return res.status(500).json({ error: err3.message });
-        return res.status(201).json({ message: 'created', pod_id: result.insertId });
-      }
-    );
+    return res.json({ id: result.insertId, message: 'created' });
   });
 });
-
 
 
 /* =========================
  * READ (list + optional filters/search)
  * คืนค่าเป็นคอลัมน์:
- * chem_name, order_lot, company_name, orderuse, chem_price, orderbuy, coa, msds (+ pod_id)
+ * chem_id(เพิ่มให้), chem_name, order_lot, company_name, orderuse, chem_price, orderbuy, coa, msds (+ pod_id)
  * ========================= */
 router.get('/read', (req, res) => {
   const { q = '', proorder_id } = req.query;
@@ -121,6 +74,7 @@ router.get('/read', (req, res) => {
   const sql = `
     SELECT
       pod.pod_id,
+      pod.chem_id,                                           -- ✅ ส่ง chem_id ออกไปให้ index ใช้ทำลิงก์สั่งซื้อ
       COALESCE(c.chem_name, CONCAT('[', pod.chem_id, ']')) AS chem_name,
       COALESCE(po.order_lot, '-')                          AS order_lot,
       COALESCE(cp.company_name, '-')                       AS company_name,
@@ -259,6 +213,163 @@ router.delete('/delete/:id', (req, res) => {
       res.status(200).json({ message: "ProductOrderDetail deleted successfully" });
     }
   );
+});
+
+// routes/productorderdetail.js (เฉพาะส่วนเพิ่มเติม / ปรับปรุง)
+
+// ----- [A] เพิ่ม endpoint: /productorderdetail/chems?product_id=XXX -----
+// ใช้โครง JOIN เดียวกับ /list แบบ product_id
+router.get('/chems', (req, res) => {
+  const productId = Number(req.query.product_id);
+  if (!productId) return res.status(400).json({ error: 'product_id is required' });
+
+  const sql = `
+    SELECT
+      pd.prodetail_id,
+      pd.product_id,
+      pd.chem_id,
+      pd.chem_percent,
+      c.chem_name,
+      c.inci_name,
+      c.chem_quantity,
+      c.chem_unit
+    FROM productdetail pd
+    LEFT JOIN chem c ON c.chem_id = pd.chem_id
+    WHERE pd.product_id = ?
+    ORDER BY pd.prodetail_id ASC
+  `;
+  connection.query(sql, [productId], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ items: rows || [] });
+  });
+});
+
+
+// ----- [B] ปรับ /list ให้รองรับทั้ง product_id และ proorder_id -----
+router.get('/list', (req, res) => {
+  const productId  = Number(req.query.product_id);
+  const proorderId = Number(req.query.proorder_id);
+
+  // ถ้ามี proorder_id → แปลงไปหา product_id ของออเดอร์นั้นก่อน
+  const runByOrder = () => {
+    const sqlOrder = `
+      SELECT product_id
+      FROM productorder
+      WHERE proorder_id = ?
+      LIMIT 1
+    `;
+    connection.query(sqlOrder, [proorderId], (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      if (!rows || rows.length === 0) return res.status(404).json({ error: 'Order not found' });
+      runByProduct(Number(rows[0].product_id));
+    });
+  };
+
+  const runByProduct = (pid) => {
+    const sql = `
+      SELECT
+        pd.prodetail_id,
+        pd.product_id,
+        pd.chem_id,
+        pd.chem_percent,
+        c.chem_name,
+        c.inci_name,
+        c.chem_quantity,
+        c.chem_unit
+      FROM productdetail pd
+      LEFT JOIN chem c ON c.chem_id = pd.chem_id
+      WHERE pd.product_id = ?
+      ORDER BY pd.prodetail_id ASC
+    `;
+    connection.query(sql, [pid], (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ items: rows || [] });
+    });
+  };
+
+  if (proorderId) return runByOrder();
+  if (productId)  return runByProduct(productId);
+  return res.status(400).json({ error: 'ต้องระบุ product_id หรือ proorder_id อย่างน้อยหนึ่งค่า' });
+});
+
+
+// ----- [C] ปรับ /read ให้รองรับ ?product_id หรือ ?proorder_id (เดิมคุณรองรับเฉพาะ q, proorder_id) -----
+router.get('/read', (req, res) => {
+  const podId      = Number(req.query.pod_id);
+  const productId  = Number(req.query.product_id);
+  const proorderId = Number(req.query.proorder_id);
+  const q          = (req.query.q || '').trim();
+
+  if (podId) {
+    const sql1 = `
+      SELECT
+        pod.pod_id,
+        COALESCE(c.chem_name, CONCAT('[', pod.chem_id, ']')) AS chem_name,
+        COALESCE(po.order_lot, '-') AS order_lot,
+        COALESCE(cp.company_name, '-') AS company_name,
+        pod.orderuse,
+        pod.chem_price,
+        pod.orderbuy,
+        pod.coa,
+        pod.msds,
+        pod.chem_id,
+        pod.proorder_id,
+        pod.company_id,
+        pod.prodetail_id
+      FROM productorderdetail pod
+      LEFT JOIN chem         c  ON c.chem_id      = pod.chem_id
+      LEFT JOIN productorder po ON po.proorder_id = pod.proorder_id
+      LEFT JOIN company      cp ON cp.company_id  = pod.company_id
+      WHERE pod.pod_id = ?
+      LIMIT 1
+    `;
+    return connection.query(sql1, [podId], (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      if (!rows || rows.length === 0) return res.status(404).json({ message: 'not found' });
+      return res.json(rows[0]);
+    });
+  }
+
+  // ถ้ามี product_id/proorder_id → คืนรายการตามใบสั่ง/สินค้า
+  if (productId || proorderId) {
+    req.url = productId
+      ? `/list?product_id=${productId}`
+      : `/list?proorder_id=${proorderId}`;
+    return router.handle(req, res);
+  }
+
+  // ถ้าไม่มีตัวกรอง → ใช้รูปแบบ join เดิม + รองรับ q
+  const params = [];
+  const where  = [];
+  if (q) {
+    const like = `%${q}%`;
+    where.push('(c.chem_name LIKE ? OR po.order_lot LIKE ? OR cp.company_name LIKE ?)');
+    params.push(like, like, like);
+  }
+
+  const sql = `
+    SELECT
+      pod.pod_id,
+      pod.chem_id,
+      COALESCE(c.chem_name, CONCAT('[', pod.chem_id, ']')) AS chem_name,
+      COALESCE(po.order_lot, '-') AS order_lot,
+      COALESCE(cp.company_name, '-') AS company_name,
+      pod.orderuse,
+      pod.chem_price,
+      pod.orderbuy,
+      pod.coa,
+      pod.msds
+    FROM productorderdetail pod
+    LEFT JOIN chem         c  ON c.chem_id      = pod.chem_id
+    LEFT JOIN productorder po ON po.proorder_id = pod.proorder_id
+    LEFT JOIN company      cp ON cp.company_id  = pod.company_id
+    ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+    ORDER BY pod.pod_id DESC
+  `;
+  connection.query(sql, params, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows || []);
+  });
 });
 
 module.exports = router;
