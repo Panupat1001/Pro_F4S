@@ -17,9 +17,6 @@ const fmtDate = (iso) => {
   const yy = d.getFullYear();
   return `${dd}/${mm}/${yy}`;
 };
-const yearFrom = (iso) => {
-  try { const y = new Date(iso).getFullYear(); return Number.isFinite(y) ? y : ""; } catch { return ""; }
-};
 function showAlert(type, msg){
   const alertBox = $("alertBox");
   if (!alertBox) { alert(msg); return; }
@@ -39,7 +36,7 @@ const ORDER_CHEMS_URLS = (id) => [
   `/api/productorder/${id}/chems`,
 ];
 
-// 2) ถ้าไม่เจอค่อย fallback ไป productdetail (เผื่อระบบเก่า)
+// 2) fallback productdetail
 const PRODUCTDETAIL_URLS = (productId) => [
   `/productdetail/list?product_id=${productId}`,
   `/productdetail/read?product_id=${productId}`,
@@ -57,7 +54,7 @@ const PRODUCTDETAIL_URLS = (productId) => [
   `/api/productdetail/chems/${productId}`,
 ];
 
-// ดึงชื่อสารเคมี (ถ้า backend ไม่ส่งมา)
+// ดึงชื่อสารเคมี
 const CHEM_DETAIL_URLS = (chemId) => [
   `/chem/detail?id=${chemId}`,
   `/chem/read/${chemId}`,
@@ -75,7 +72,6 @@ async function fetchJson(url) {
 
 // ---------- Normalizers ----------
 function pickChemQuantity(n){
-  // ให้ priority กับ 'chem_quantity' ที่มาจาก JOIN ตาราง chem
   return num(
     n.chem_quantity ??
     n.chemqty ??
@@ -93,7 +89,7 @@ function pickChemQuantity(n){
 function normalizeChemRow(n){
   const chemQty = pickChemQuantity(n);
   return {
-    prodetail_id: Number(n.prodetail_id ?? n.prodetailId ?? n.prodetailid ?? 0), // 👈 เพิ่มบรรทัดนี้
+    prodetail_id: Number(n.prodetail_id ?? n.prodetailId ?? n.prodetailid ?? 0),
     chem_id: Number((n.chem_id != null ? n.chem_id : n.id)),
     chem_percent: Number(
       (n.chem_percent != null ? n.chem_percent :
@@ -113,26 +109,18 @@ function normalizeChemRow(n){
   };
 }
 
-// ---------- Fetch chems (prefer /productorder/:id/chems) ----------
+// ---------- Fetch chems ----------
 async function fetchChemsByOrderId(orderId, productIdFallback){
-  // 1) ลอง endpoint เฉพาะของ order ก่อน
   for (const url of ORDER_CHEMS_URLS(orderId)) {
     try {
       const data = await fetchJson(url);
       const items = Array.isArray(data) ? data : (data.items || data.rows || data.data || []);
       if (Array.isArray(items) && items.length) {
         const normalized = items.map(normalizeChemRow).filter(x => x.chem_id);
-        if (normalized.length) {
-          console.debug('[productorder-detail] chems from', url, 'sample:', normalized[0]);
-          return normalized;
-        }
+        if (normalized.length) return normalized;
       }
-    } catch (e) {
-      console.debug('[productorder-detail] fetch order chems fail:', url, String(e));
-    }
+    } catch {}
   }
-
-  // 2) fallback ไปตาม productId (กรณีระบบเก่า)
   if (!productIdFallback) return [];
   for (const url of PRODUCTDETAIL_URLS(productIdFallback)){
     try {
@@ -141,24 +129,13 @@ async function fetchChemsByOrderId(orderId, productIdFallback){
       if (!Array.isArray(items) || items.length === 0) continue;
 
       const filtered = items.filter((n) => {
-        const pid2 = Number(
-          (n.product_id != null ? n.product_id :
-          (n.p_id != null ? n.p_id :
-          (n.productId != null ? n.productId : n.productid)))
-        );
+        const pid2 = Number(n.product_id ?? n.p_id ?? n.productId ?? n.productid);
         return !Number.isFinite(pid2) ? true : (pid2 === Number(productIdFallback));
       });
-
       const normalized = filtered.map(normalizeChemRow).filter(x => x.chem_id);
-      if (normalized.length){
-        console.debug('[productorder-detail] chems from', url, 'sample:', normalized[0]);
-        return normalized;
-      }
-    } catch (e) {
-      console.debug('[productorder-detail] fetch productdetail fail:', url, String(e));
-    }
+      if (normalized.length) return normalized;
+    } catch {}
   }
-  console.debug('[productorder-detail] No chems found (orderId:', orderId, ', productId:', productIdFallback, ')');
   return [];
 }
 
@@ -167,36 +144,29 @@ const chemNameCache = Object.create(null);
 async function fetchChemNameById(chemId) {
   if (!chemId) return null;
   if (chemNameCache[chemId]) return chemNameCache[chemId];
-
   for (const url of CHEM_DETAIL_URLS(chemId)) {
     try {
       const data = await fetchJson(url);
       const c = Array.isArray(data) ? (data[0] || null) : data;
       if (!c) continue;
-
       const name = c.chem_name || (c.chem && c.chem.chem_name) || c.name || "";
       const inci = c.inci_name || "";
       const label = name ? (inci ? `${name} (${inci})` : name) : (inci || null);
-
       if (label) {
         chemNameCache[chemId] = label;
         return label;
       }
-    } catch (e) {
-      console.debug('[productorder-detail] fetch chem name fail:', url, String(e));
-    }
+    } catch {}
   }
   chemNameCache[chemId] = `ID ${chemId}`;
   return chemNameCache[chemId];
 }
 async function fillMissingChemNames(rows){
-  const tasks = rows.map(async (r) => {
-    const hasName = r.chem_name && String(r.chem_name).trim() !== "";
-    if (hasName) return;
+  await Promise.all(rows.map(async (r) => {
+    if (r.chem_name && String(r.chem_name).trim() !== "") return;
     const label = await fetchChemNameById(r.chem_id);
     r.chem_name = label || `ID ${r.chem_id}`;
-  });
-  await Promise.all(tasks);
+  }));
 }
 
 function computeChemLines(chems, orderQtyGram) {
@@ -206,14 +176,12 @@ function computeChemLines(chems, orderQtyGram) {
     const displayName = (r.chem_name && String(r.chem_name).trim() !== "")
       ? r.chem_name
       : `ID ${r.chem_id}`;
-
-    const need = percent * qty * 0.01; // ต้องใช้(กรัม)
-    const actual = need * 1.2;         // ผลิต(กรัม) = ต้องใช้ * 1.2
+    const need = percent * qty * 0.01;
+    const actual = need * 1.2;
     const remainRaw = (r.chem_quantity ?? r.chem_remain ?? r.remain ?? r.chem_stock ?? 0);
-
     return {
-      // NEW: เก็บ chemId ไว้ให้ปุ่ม
-      chemId: r.chem_id,              // NEW
+      chemId: r.chem_id,
+      prodetailId: r.prodetail_id,
       name: displayName,
       need,
       actual,
@@ -223,10 +191,29 @@ function computeChemLines(chems, orderQtyGram) {
   });
 }
 
+// ===== One-click lock helpers =====
+const orderedKey = (proorderId) => `poOrdered:${proorderId}`;
+function loadOrderedMap(proorderId){
+  try { return JSON.parse(localStorage.getItem(orderedKey(proorderId)) || '{}'); }
+  catch { return {}; }
+}
+function saveOrderedMap(proorderId, map){
+  try { localStorage.setItem(orderedKey(proorderId), JSON.stringify(map)); } catch {}
+}
+function markChemOrderedUI(chemId){
+  document.querySelectorAll(`.order-chem[data-chem-id="${chemId}"]`).forEach(b=>{
+    b.dataset.ordered = '1';
+    b.disabled = true;
+    b.classList.remove('btn-success');
+    b.classList.add('btn-secondary');
+    b.textContent = 'เพิ่มแล้ว ✓';
+  });
+}
+
+let CURRENT_PROORDER_ID = 0;
 
 // ---------- Main ----------
 document.addEventListener("DOMContentLoaded", async () => {
-  // อ่าน id จาก query หรือ path
   let proorderId = toInt(getParam("id") ?? getParam("proorder_id"), 0);
   if (!proorderId){
     const parts = location.pathname.split('/').filter(Boolean);
@@ -237,18 +224,16 @@ document.addEventListener("DOMContentLoaded", async () => {
     showAlert("danger", "ไม่พบรหัสการผลิต (id)");
     return;
   }
+  CURRENT_PROORDER_ID = proorderId;
 
-  // ปุ่มแก้ไข
   const btnEdit = $("btnEdit");
   if (btnEdit) btnEdit.href = `/productorder/edit.html?id=${encodeURIComponent(proorderId)}`;
 
-  // โหลดคำสั่งผลิต (หัวใบสั่ง)
   let order;
   try {
     const o = await fetchJson(ORDER_URL(proorderId));
     order = (o?.data ?? o?.item ?? o);
-  } catch (e) {
-    console.debug('[productorder-detail] load order fail:', e);
+  } catch {
     showAlert("danger", "โหลดคำสั่งผลิตไม่สำเร็จ");
     return;
   }
@@ -257,17 +242,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     return;
   }
 
-  // ฟิลด์หัวใบสั่ง
-  let productId = order.product_id ?? order.productId ??
-                  order.product?.product_id ?? order.product?.id ??
-                  order.productIdRef ?? null;
-
-  const lotRaw     = order.order_lot ?? order.lot ?? "";   // << ใช้เลขล็อตอย่างเดียว
+  let productId = order.product_id ?? order.productId ?? order.product?.product_id ?? order.product?.id ?? null;
+  const lotRaw     = order.order_lot ?? order.lot ?? "";
   const orderDate  = order.order_date ?? order.orderDate ?? "";
   const expDate    = order.order_exp  ?? order.orderExp  ?? "";
   const qtyGram    = order.order_quantity ?? order.quantity ?? "";
 
-  // ชื่อ/โค้ดสินค้า (ยังโหลดไว้แสดงชื่อสินค้าได้ตามเดิม)
   let productName = order.product_name ?? order.productName ?? null;
   let productCode = order.product_code ?? order.productCode ?? null;
 
@@ -279,59 +259,54 @@ document.addEventListener("DOMContentLoaded", async () => {
         productName = productName || prod.product_name || prod.name || null;
         productCode = productCode || prod.product_code || prod.product_fdanum || prod.notify_no || null;
       }
-    } catch (e) {
-      console.debug('[productorder-detail] load product fail:', e);
-    }
+    } catch {}
   }
 
-  // === แสดงรหัสล็อต "เลขล็อตอย่างเดียว" ===
   $("o_id")   && ($("o_id").value   = `#${order.proorder_id ?? order.id ?? proorderId}`);
   $("p_name") && ($("p_name").value = productName || "-");
-  $("o_lot")  && ($("o_lot").value  = String(lotRaw || "").trim() || "-");  // <<<< สำคัญ: ไม่ประกอบปี/รหัสสินค้า
+  $("o_lot")  && ($("o_lot").value  = String(lotRaw || "").trim() || "-");
   $("o_date") && ($("o_date").value = fmtDate(orderDate));
   $("o_exp")  && ($("o_exp").value  = fmtDate(expDate));
   $("o_qty")  && ($("o_qty").value  = (qtyGram !== "" && qtyGram != null) ? qtyGram : "-");
 
-  // ===== โหลดสารเคมี (ใช้ /productorder/:id/chems เป็นหลัก) =====
   let baseChems = [];
   if (Array.isArray(order.chems) && order.chems.length){
     baseChems = order.chems.map(normalizeChemRow);
-    console.debug('[productorder-detail] chems from order payload, sample:', baseChems[0]);
   } else {
     baseChems = await fetchChemsByOrderId(proorderId, productId);
   }
-
-  // เติมชื่อสารเคมี (ถ้าขาด)
   await fillMissingChemNames(baseChems);
-
-  // คำนวณ need/actual + ใช้ chem_quantity เป็น "ปริมาณคงเหลือ"
   const list = computeChemLines(baseChems, qtyGram);
 
-// เติมตาราง
-const tbody = $("chemTableBody");
-if (tbody) {
-  tbody.innerHTML = list.length
-    ? list.map((x) => `
-        <tr data-chem-id="${x.chemId}" data-need="${Number(x.need).toFixed(2)}" data-actual="${Number(x.actual).toFixed(2)}">
-          <td>
-            ${esc(x.name)}${x.noPercent ? '<span class="badge bg-warning text-dark ms-2">ไม่มี %</span>' : ''}
-          </td>
-          <td>${Number(x.need).toFixed(2)}</td>
-          <td>${Number.isFinite(Number(x.remain)) ? Number(x.remain).toFixed(2) : esc(String(x.remain))}</td>
-          <td>${Number(x.actual).toFixed(2)}</td>
-          <td class="text-end">
-            <button type="button" class="btn btn-sm btn-success order-chem"
-        data-chem-id="${x.chemId}"
-        data-prodetail-id="${x.prodetailId}"
-        data-qty="${Number(x.need).toFixed(2)}">
-  สั่งซื้อ
-</button>
-          </td>
-        </tr>
-      `).join("")
-    : `<tr><td colspan="5" class="text-center text-muted">ไม่มีรายการสารเคมี</td></tr>`; // ปรับ colspan เป็น 5
-}
-
+  const tbody = $("chemTableBody");
+  if (tbody) {
+    const orderedMap = loadOrderedMap(CURRENT_PROORDER_ID);
+    tbody.innerHTML = list.length
+      ? list.map((x) => {
+          const already = !!orderedMap[x.chemId];
+          return `
+            <tr data-chem-id="${x.chemId}">
+              <td>${esc(x.name)}${x.noPercent ? '<span class="badge bg-warning text-dark ms-2">ไม่มี %</span>' : ''}</td>
+              <td>${Number(x.need).toFixed(2)}</td>
+              <td>${Number.isFinite(Number(x.remain)) ? Number(x.remain).toFixed(2) : esc(String(x.remain))}</td>
+              <td>${Number(x.actual).toFixed(2)}</td>
+              <td class="text-end">
+                <button
+                  type="button"
+                  class="btn btn-sm ${already ? 'btn-secondary' : 'btn-success'} order-chem"
+                  data-chem-id="${x.chemId}"
+                  data-prodetail-id="${x.prodetailId}"
+                  data-qty="${Number(x.need).toFixed(2)}"
+                  data-ordered="${already ? '1' : '0'}"
+                  ${already ? 'disabled' : ''}>
+                  ${already ? 'เพิ่มแล้ว ✓' : 'สั่งซื้อ'}
+                </button>
+              </td>
+            </tr>
+          `;
+        }).join("")
+      : `<tr><td colspan="5" class="text-center text-muted">ไม่มีรายการสารเคมี</td></tr>`;
+  }
 
   const alertBox = $("alertBox");
   if (alertBox) alertBox.classList.add("d-none");
@@ -339,10 +314,7 @@ if (tbody) {
 
 // ===== helper: ยิงไปสร้าง/บวกเพิ่ม productorderdetail =====
 async function postPOD(payload) {
-  const urls = [
-    '/productorderdetail/create',
-    '/api/productorderdetail/create'
-  ];
+  const urls = ['/productorderdetail/create','/api/productorderdetail/create'];
   let lastErr;
   for (const url of urls) {
     try {
@@ -355,7 +327,6 @@ async function postPOD(payload) {
       if (!res.ok) throw new Error(data.error || String(res.status));
       return data;
     } catch (e) {
-      console.warn('[POD] try', url, '->', e.message);
       lastErr = e;
     }
   }
@@ -366,12 +337,12 @@ async function postPOD(payload) {
 document.addEventListener('click', async (ev) => {
   const btn = ev.target.closest('.order-chem');
   if (!btn) return;
-  ev.preventDefault(); // กันเผื่อปุ่มอยู่ใน <form>
+  ev.preventDefault();
+  if (btn.disabled || btn.dataset.busy === '1' || btn.dataset.ordered === '1') return;
 
-  // อ่านค่า
-  const proorderId = toInt(getParam('id') ?? getParam('proorder_id'), 0);
+  const proorderId = CURRENT_PROORDER_ID || toInt(getParam('id') ?? getParam('proorder_id'), 0);
   const chemId     = toInt(btn.dataset.chemId, 0);
-  const prodetailId= toInt(btn.dataset.prodetailId, 0); // ส่งได้/ไม่ส่งก็ได้
+  const prodetailId= toInt(btn.dataset.prodetailId, 0);
   const qty        = Number(btn.dataset.qty || 0);
 
   if (!proorderId || !chemId || !(qty > 0)) {
@@ -379,25 +350,23 @@ document.addEventListener('click', async (ev) => {
     return;
   }
 
-  // UX ระหว่างส่ง
-  btn.disabled = true;
+  btn.dataset.busy = '1';
   const oldText = btn.textContent;
+  btn.disabled = true;
   btn.textContent = 'กำลังเพิ่ม...';
 
   try {
-    const payload = {
-      proorder_id: proorderId,
-      chem_id: chemId,
-      orderuse: qty,
-      prodetail_id: prodetailId || null
-      // company_id / chem_price / coa / msds เพิ่มได้ถ้าคุณมีค่า
-    };
-    const data = await postPOD(payload);
-    console.log('[POD] created/updated:', data);
-    btn.textContent = 'เพิ่มแล้ว ✓';
+    const payload = { proorder_id: proorderId, chem_id: chemId, orderuse: qty, prodetail_id: prodetailId || null };
+    await postPOD(payload);
+
+    const map = loadOrderedMap(proorderId);
+    map[chemId] = true;
+    saveOrderedMap(proorderId, map);
+    markChemOrderedUI(chemId);
+
     showAlert('success', 'บันทึกรายการสั่งซื้อเรียบร้อย');
   } catch (e) {
-    console.error('[POD] failed:', e);
+    btn.removeAttribute('data-busy');
     btn.disabled = false;
     btn.textContent = oldText;
     showAlert('danger', 'เพิ่มรายการไม่สำเร็จ: ' + e.message);
