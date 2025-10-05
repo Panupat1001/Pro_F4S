@@ -1,4 +1,3 @@
-<!-- public/productorderdetail/buy.html -->
 <!DOCTYPE html>
 <html lang="th">
   <head>
@@ -6,165 +5,153 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>สั่งซื้อสารเคมี</title>
 
-    <link rel="stylesheet" href="/css/index.css" />
+    <!-- Bootstrap CSS -->
     <link
       href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
       rel="stylesheet"
     />
+
+    <!-- Bootstrap Icons (optional) -->
     <link
-      href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css"
       rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css"
     />
+
+    <!-- Custom CSS (ถ้ามี) -->
+    <link rel="stylesheet" href="/css/index.css" />
   </head>
   <body>
     <div id="site-header"></div>
     <script src="/js/include-header.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
-    <main class="container my-4" style="max-width: 900px">
+    <main class="container my-4" style="max-width: 980px">
       <div class="d-flex justify-content-between align-items-center mb-3">
-        <h3 class="m-0">สั่งซื้อสารเคมี</h3>
+        <h3 class="mb-0">สั่งซื้อสารเคมี</h3>
         <button id="btnBack" class="btn btn-outline-secondary">
           <i class="bi bi-arrow-left"></i> กลับ
         </button>
       </div>
 
-      <div class="card shadow-sm">
-        <div class="card-body">
-          <form id="formBuy" autocomplete="off">
-            <!-- แถวบน: ชื่อสาร (ซ้าย) + บริษัท (ขวา) -->
-            <div class="row g-3">
-              <div class="col-md-6">
-                <label class="form-label">ชื่อสารเคมี (ชื่อทางการค้า)</label>
-                <input
-                  id="chem_name"
-                  type="text"
-                  class="form-control"
-                  placeholder="-"
-                  readonly
-                />
-                <input id="chem_id" type="hidden" />
-              </div>
-              <div class="col-md-6">
-                <label for="company_id" class="form-label"
-                  >บริษัทที่ขายสารเคมี</label
-                >
-                <select id="company_id" class="form-select" required>
-                  <option value="">-- เลือกบริษัท --</option>
-                </select>
-              </div>
-            </div>
+      <form id="formBuy" class="card shadow-sm p-4">
+        <div class="row g-3">
+          <!-- ชื่อสารเคมี -->
+          <div class="col-md-6">
+            <label for="chem_name" class="form-label"
+              >ชื่อสารเคมี (ชื่อทางการค้า)</label
+            >
+            <input
+              id="chem_name"
+              type="text"
+              class="form-control"
+              placeholder="-"
+              readonly
+            />
+            <!-- id ที่ JS ใช้เพื่อบันทึก -->
+            <input id="chem_id" type="hidden" />
+          </div>
 
-            <!-- แถวกลาง: ปริมาณที่สั่ง + ราคารวมที่จ่าย -->
-            <div class="row g-3 mt-1">
-              <div class="col-md-6">
-                <label for="orderuse" class="form-label"
-                  >ปริมาณที่สั่ง (กรัม)</label
-                >
-                <input
-                  id="orderuse"
-                  type="number"
-                  min="0"
-                  step="1"
-                  class="form-control"
-                  placeholder="เช่น 2500"
-                  required
-                />
-                <!-- ✅ ย้าย reorder มาตรงนี้ -->
-                <div class="form-text" id="orderuse_help">reorder: -</div>
-              </div>
-              <div class="col-md-6">
-                <label for="orderbuy" class="form-label"
-                  >ราคารวมที่จ่าย (บาท)</label
-                >
-                <input
-                  id="orderbuy"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  class="form-control"
-                  placeholder="เช่น 12000"
-                  required
-                />
-                <div class="form-text">ใช้คำนวณราคา/กรัม</div>
-              </div>
-            </div>
+          <!-- บริษัทที่ขาย -->
+          <div class="col-md-6">
+            <label for="company_id" class="form-label"
+              >บริษัทที่ขายสารเคมี</label
+            >
+            <select id="company_id" class="form-select" required>
+              <option value="">-- เลือกบริษัท --</option>
+            </select>
+          </div>
 
-            <!-- ราคา/กรัม (คำนวณ) -->
-            <div class="mt-3">
-              <label for="chem_price" class="form-label"
-                >ราคา/กรัม (คำนวณ)</label
-              >
+          <!-- ปริมาณที่สั่งซื้อ -->
+          <div class="col-md-6">
+            <label for="orderbuy" class="form-label"
+              >ปริมาณที่สั่ง (กรัม)</label
+            >
+            <input
+              id="orderbuy"
+              type="number"
+              min="0"
+              step="1"
+              class="form-control"
+              placeholder="เช่น 2500"
+              required
+            />
+            <div id="orderbuy_help" class="form-text">reorder: -</div>
+          </div>
+
+          <!-- ราคารวมที่จ่าย (บาท) -->
+          <div class="col-md-6">
+            <label for="chem_price" class="form-label"
+              >ราคารวมที่จ่าย (บาท)</label
+            >
+            <input
+              id="chem_price"
+              type="number"
+              min="0"
+              step="0.01"
+              class="form-control"
+              placeholder="เช่น 1221"
+              required
+            />
+            <div class="form-text">ใช้คำนวณราคา/กรัม</div>
+          </div>
+
+          <!-- ราคา/กรัม (คำนวณ) -->
+          <div class="col-12">
+            <label for="price_gram" class="form-label">ราคา/กรัม (คำนวณ)</label>
+            <input
+              id="price_gram"
+              type="text"
+              class="form-control"
+              placeholder="ระบบจะคำนวณให้อัตโนมัติ"
+              readonly
+            />
+          </div>
+
+          <!-- COA / MSDS -->
+          <div class="col-md-6">
+            <label for="coa" class="form-label"
+              >COA (ลิงก์หรือรายละเอียด)</label
+            >
+            <div class="input-group">
               <input
-                id="chem_price"
+                id="coa"
                 type="text"
                 class="form-control"
-                readonly
-                placeholder="0.00"
+                placeholder="เช่น URL เอกสาร COA"
               />
+              <span class="input-group-text"><i class="bi bi-upload"></i></span>
             </div>
+          </div>
 
-            <!-- COA / MSDS -->
-            <div class="row g-3 mt-1">
-              <div class="col-md-6">
-                <label for="coa" class="form-label"
-                  >COA (ลิงก์หรือรายละเอียด)</label
-                >
-                <div class="input-group">
-                  <input
-                    id="coa"
-                    type="text"
-                    class="form-control"
-                    placeholder="เช่น URL เอกสาร COA"
-                  />
-                  <button
-                    id="btnUploadCoa"
-                    class="btn btn-outline-primary"
-                    type="button"
-                  >
-                    <i class="bi bi-upload"></i>
-                  </button>
-                </div>
-              </div>
-              <div class="col-md-6">
-                <label for="msds" class="form-label"
-                  >MSDS (ลิงก์หรือรายละเอียด)</label
-                >
-                <div class="input-group">
-                  <input
-                    id="msds"
-                    type="text"
-                    class="form-control"
-                    placeholder="เช่น URL เอกสาร MSDS"
-                  />
-                  <button
-                    id="btnUploadMsds"
-                    class="btn btn-outline-primary"
-                    type="button"
-                  >
-                    <i class="bi bi-upload"></i>
-                  </button>
-                </div>
-              </div>
+          <div class="col-md-6">
+            <label for="msds" class="form-label"
+              >MSDS (ลิงก์หรือรายละเอียด)</label
+            >
+            <div class="input-group">
+              <input
+                id="msds"
+                type="text"
+                class="form-control"
+                placeholder="เช่น URL เอกสาร MSDS"
+              />
+              <span class="input-group-text"><i class="bi bi-upload"></i></span>
             </div>
-
-            <div class="d-flex gap-2 mt-4">
-              <button type="submit" class="btn btn-primary">
-                <i class="bi bi-save"></i> บันทึกการสั่งซื้อ
-              </button>
-              <button
-                type="button"
-                id="btnReset"
-                class="btn btn-outline-secondary"
-              >
-                ล้างค่า
-              </button>
-            </div>
-          </form>
+          </div>
         </div>
-      </div>
+
+        <div class="mt-4 d-flex gap-2">
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-check2-square"></i> บันทึกการสั่งซื้อ
+          </button>
+          <button type="reset" class="btn btn-secondary">ล้างค่า</button>
+        </div>
+      </form>
     </main>
 
+    <!-- Bootstrap Bundle -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+    <!-- หน้าซื้อ ใช้ไฟล์ JS เวอร์ชันที่คำนวณ price_gram = chem_price ÷ orderbuy -->
     <script src="/js/productorderdetail-buy.js"></script>
+    <!-- หรือถ้าโครงสร้างโปรเจ็กต์คุณไม่ใช่ /public/ ให้แก้ path ให้ถูกต้อง เช่น /js/productorderdetail-buy.js -->
   </body>
 </html>

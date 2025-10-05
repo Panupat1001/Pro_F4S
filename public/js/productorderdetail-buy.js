@@ -7,198 +7,230 @@ document.addEventListener("DOMContentLoaded", () => {
     return Number.isFinite(n) ? n : d;
   };
   const fmtMoney = (n) =>
-    Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    Number(n || 0).toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
   const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
-  const fmt = (n) => Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
-  const getParam = (k, d = null) => new URLSearchParams(location.search).get(k) ?? d;
+  const fmt = (n) =>
+    Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
+  const getParam = (k, d = null) =>
+    new URLSearchParams(location.search).get(k) ?? d;
 
-  // back
+  // ===== ปุ่มกลับ =====
   $("btnBack")?.addEventListener("click", (e) => {
     e.preventDefault();
     if (document.referrer) history.back();
-    else location.href = "/productorder/index.html";
+    else location.href = "/productorderdetail/index.html";
   });
 
-  // โหลดรายชื่อบริษัท
+  // ===== โหลดรายชื่อบริษัท =====
   async function loadCompanies() {
-    const companyUrls = ["/company/read"];
-    for (const url of companyUrls) {
-      try {
-        const res = await fetch(url, { headers: { Accept: "application/json" } });
-        if (!res.ok) continue;
-        const data = await res.json();
-        const arr = Array.isArray(data)
-          ? data
-          : Array.isArray(data.items) ? data.items
-          : Array.isArray(data.data)  ? data.data
-          : Array.isArray(data.rows)  ? data.rows
-          : null;
-        if (!arr?.length) continue;
-
-        const mapCompany = (x) => {
-          const id = x.id ?? x.company_id ?? x.COMPANY_ID ?? x.companyId;
-          const name = x.company_name ?? x.name ?? x.COMPANY_NAME ?? x.companyName;
-          if (!id || !name) return null;
-          return { id: Number(id), name: String(name) };
-        };
-        const items = arr.map(mapCompany).filter(Boolean);
-
-        const sel = $("company_id");
-        items.forEach((x) => {
+    try {
+      const res = await fetch("/company/read", {
+        headers: { Accept: "application/json" },
+      });
+      if (!res.ok) throw new Error("โหลดไม่สำเร็จ");
+      const data = await res.json();
+      const arr = Array.isArray(data)
+        ? data
+        : Array.isArray(data.data)
+        ? data.data
+        : Array.isArray(data.rows)
+        ? data.rows
+        : Array.isArray(data.items)
+        ? data.items
+        : [];
+      const sel = $("company_id");
+      sel.innerHTML = `<option value="">-- เลือกบริษัท --</option>`;
+      arr.forEach((x) => {
+        const id = x.id ?? x.company_id ?? x.COMPANY_ID;
+        const name = x.company_name ?? x.name ?? x.COMPANY_NAME;
+        if (id && name) {
           const op = document.createElement("option");
-          op.value = x.id;
-          op.textContent = x.name;
+          op.value = id;
+          op.textContent = name;
           sel.appendChild(op);
-        });
-        return;
-      } catch {}
+        }
+      });
+    } catch (err) {
+      console.error(err);
+      alert("โหลดรายการบริษัทไม่สำเร็จ");
     }
-    alert("โหลดรายการบริษัทไม่สำเร็จ");
   }
 
-  // ดึง reorder ตาม chem_id (เหมือน create.js)
+  // ===== ดึง reorder ตาม chem_id =====
   async function updateChemReorder(chemId) {
-    const help = $("orderuse_help");
-    const qtyInput = $("orderuse");
+    const help = $("orderbuy_help");
     if (!chemId) {
-      help && (help.textContent = "reorder: -");
-      qtyInput?.setAttribute("placeholder", "เช่น 2500");
+      help.textContent = "reorder: -";
       return;
     }
-    const candidates = [
-      `/chem/detail?id=${chemId}`,
-      `/chem/read/${chemId}`,
-      `/chem/${chemId}`,
+    try {
+      const res = await fetch(`/chem/detail?id=${chemId}`);
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      const row = Array.isArray(data) ? data[0] : data;
+      const reorder = row?.chem_reorder ?? row?.CHEM_REORDER ?? null;
+      help.textContent = reorder ? `reorder: ${fmt(reorder)} กรัม` : "reorder: -";
+    } catch {
+      help.textContent = "reorder: -";
+    }
+  }
+
+  // ===== คำนวณราคา/กรัม =====
+  const totalPriceInput = $("chem_price"); // ✅ ราคารวมที่จ่าย (บาท)
+  const qtyInput = $("orderbuy");          // ✅ ปริมาณที่สั่งซื้อ (กรัม)
+  const unitBox = $("price_gram");         // ✅ ราคา/กรัม (readonly)
+
+  const recalc = () => {
+    const total = toNum(totalPriceInput.value);
+    const qty = toNum(qtyInput.value);
+    const unit = qty > 0 ? round2(total / qty) : 0;
+    if (unitBox) unitBox.value = fmtMoney(unit);
+  };
+
+  totalPriceInput?.addEventListener("input", recalc);
+  qtyInput?.addEventListener("input", recalc);
+
+  // ===== โหลดข้อมูลตาม pod_id =====
+  async function loadDetailByPodId(podId) {
+    const urls = [
+      `/productorderdetail/read/${podId}`,
+      `/productorderdetail/detail?id=${podId}`,
+      `/productorderdetail/${podId}`,
     ];
-    let reorder = null, ok = false;
-    for (const url of candidates) {
+    for (const u of urls) {
       try {
-        const res = await fetch(url, { headers: { Accept: "application/json" } });
+        const res = await fetch(u, { headers: { Accept: "application/json" } });
         if (!res.ok) continue;
         const data = await res.json();
-        const row = Array.isArray(data) ? (data[0] || null) : data;
-        if (!row) continue;
-
-        reorder =
-          row.chem_reorder ?? row.CHEM_REORDER ?? row.reorder ??
-          row.data?.chem_reorder ?? null;
-
-        ok = true;
-        break;
+        return Array.isArray(data) ? data[0] : data;
       } catch {}
     }
-    if (ok && reorder != null) {
-      help && (help.textContent = `reorder: ${fmt(reorder)} กรัม`);
-      qtyInput && (qtyInput.placeholder = String(reorder));
-    } else {
-      help && (help.textContent = "reorder: -");
-      qtyInput?.setAttribute("placeholder", "เช่น 2500");
-    }
+    return null;
   }
 
-  // คำนวณราคา/กรัม
-  const totalInput = $("orderbuy");
-  const qtyInput   = $("orderuse");
-  const unitBox    = $("chem_price");
-  unitBox && (unitBox.readOnly = true);
-
-  function recalc() {
-    const total = toNum(totalInput.value, 0);
-    const qty   = toNum(qtyInput.value, 0);
-    const unit  = qty > 0 ? round2(total / qty) : 0;
-    unitBox.value = fmtMoney(unit);
+  // ===== โหลดแถวล่าสุดตาม chem_id =====
+  async function loadLatestByChemId(chemId) {
+    if (!chemId) return null;
+    const res = await fetch(`/productorderdetail/read`);
+    if (!res.ok) return null;
+    const raw = await res.json();
+    const arr = Array.isArray(raw)
+      ? raw
+      : Array.isArray(raw.data)
+      ? raw.data
+      : Array.isArray(raw.rows)
+      ? raw.rows
+      : [];
+    const rows = arr
+      .filter((x) => Number(x.chem_id ?? x.CHEM_ID) === Number(chemId))
+      .map((x) => ({
+        pod_id: x.pod_id ?? x.POD_ID ?? null,
+        chem_id: x.chem_id ?? x.CHEM_ID ?? null,
+        chem_name: x.chem_name ?? x.CHEM_NAME ?? null,
+        company_id: x.company_id ?? x.COMPANY_ID ?? null,
+        orderbuy: x.orderbuy ?? x.ORDERBUY ?? null,
+        chem_price: x.chem_price ?? x.CHEM_PRICE ?? null,
+        coa: x.coa ?? x.COA ?? null,
+        msds: x.msds ?? x.MSDS ?? null,
+      }));
+    if (!rows.length) return null;
+    rows.sort((a, b) => (b.pod_id || 0) - (a.pod_id || 0));
+    return rows[0];
   }
-  totalInput.addEventListener("input", recalc);
-  qtyInput.addEventListener("input", recalc);
-
-  // ปุ่มอัปโหลด
-  $("btnUploadCoa")?.addEventListener("click", () => alert("เชื่อมต่ออัปโหลด COA ตามระบบของคุณ"));
-  $("btnUploadMsds")?.addEventListener("click", () => alert("เชื่อมต่ออัปโหลด MSDS ตามระบบของคุณ"));
-
-  // Reset
-  $("btnReset")?.addEventListener("click", () => {
-    $("orderuse").value = "";
-    $("orderbuy").value = "";
-    $("chem_price").value = "";
-    $("coa").value = "";
-    $("msds").value = "";
-  });
 
   // ===== Initial load =====
-  loadCompanies();
-
-  const chemId = Number(getParam("chem_id", 0)) || 0;
-  const chemName = getParam("chem_name", "");
-  $("chem_id").value = chemId || "";
-  if (chemName) $("chem_name").value = chemName;
+  const podId = Number(getParam("pod_id", 0)) || 0;
+  let chemId = Number(getParam("chem_id", 0)) || 0;
+  let chemName = getParam("chem_name", "");
 
   (async () => {
-    if (!chemId) {
-      $("chem_name").value = "-";
-      $("orderuse_help").textContent = "reorder: -";
-      alert("ไม่พบ chem_id — กรุณาเปิดจากปุ่มสั่งซื้อในหน้า index");
+    await loadCompanies();
+
+    $("chem_id").value = chemId || "";
+    if (chemName) $("chem_name").value = chemName;
+
+    let data = null;
+    if (podId) {
+      data = await loadDetailByPodId(podId);
+    } else if (chemId) {
+      data = await loadLatestByChemId(chemId);
+    }
+
+    if (!data) {
+      await updateChemReorder(chemId);
       return;
     }
-    await updateChemReorder(chemId);
 
-    // ถ้าไม่ได้ส่งชื่อมา ให้ลองถามจาก /chem
-    if (!chemName) {
-      const urls = [`/chem/detail?id=${chemId}`, `/chem/read/${chemId}`];
-      for (const url of urls) {
-        try {
-          const res = await fetch(url, { headers: { Accept: "application/json" } });
-          if (!res.ok) continue;
-          const data = await res.json();
-          const row = Array.isArray(data) ? (data[0] || null) : data;
-          const name =
-            row?.chem_name ?? row?.CHEM_NAME ?? row?.name ?? row?.inci_name ?? row?.data?.chem_name ?? null;
-          if (name) { $("chem_name").value = String(name); break; }
-        } catch {}
-      }
-      if (!$("chem_name").value) $("chem_name").value = "-";
+    // === Prefill ===
+    $("chem_id").value = data.chem_id ?? "";
+    $("chem_name").value = data.chem_name ?? chemName ?? "-";
+    $("company_id").value = data.company_id ?? "";
+    $("orderbuy").value = data.orderbuy ?? "";
+    $("chem_price").value = ""; // ✅ ผู้ใช้กรอกเอง
+    $("price_gram").value = fmtMoney(data.chem_price ?? 0);
+    $("coa").value = data.coa ?? "";
+    $("msds").value = data.msds ?? "";
+    await updateChemReorder(data.chem_id);
+
+    // ซ่อน pod_id สำหรับ submit
+    let hid = document.getElementById("pod_id");
+    if (!hid) {
+      hid = document.createElement("input");
+      hid.type = "hidden";
+      hid.id = "pod_id";
+      hid.name = "pod_id";
+      document.getElementById("formBuy").appendChild(hid);
     }
+    hid.value = data.pod_id;
   })();
 
-  // Submit
+  // ===== Submit (UPDATE ตาม pod_id) =====
+  async function tryUpdate(payload) {
+    const res = await fetch(`/productorderdetail/update`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `อัปเดตไม่สำเร็จ (${res.status})`);
+    return data;
+  }
+
   $("formBuy").addEventListener("submit", async (e) => {
     e.preventDefault();
+    const pod_id = Number($("pod_id")?.value || 0);
+    if (!pod_id) return alert("ไม่พบ pod_id ของรายการนี้");
 
-    const chem_id    = toNum(($("chem_id").value || 0), 0);
-    const company_id = toNum(($("company_id").value || 0), 0);
-    const orderuse   = toNum(($("orderuse").value || 0), 0);
-    const orderbuy   = toNum(($("orderbuy").value || 0), 0);
-    const chem_price = orderuse > 0 ? round2(orderbuy / orderuse) : 0;
+    const chem_id = toNum($("chem_id").value || 0);
+    const company_id = toNum($("company_id").value || 0);
+    const orderbuy = toNum($("orderbuy").value || 0);
+    const chem_price = toNum($("chem_price").value || 0);
+    const price_gram = orderbuy > 0 ? round2(chem_price / orderbuy) : 0;
 
-    if (!chem_id)    return alert("กรุณาเลือกชื่อทางการค้า");
+    if (!chem_id) return alert("กรุณาเลือกชื่อทางการค้า");
     if (!company_id) return alert("กรุณาเลือกชื่อบริษัทที่ขายสารเคมี");
-    if (orderuse < 200) return alert("ปริมาณที่สั่งต้องไม่น้อยกว่า 200");
 
     const payload = {
-      prodetail_id: null,
+      pod_id,
       chem_id,
-      proorder_id: null,
       company_id,
-      orderuse,
-      chem_price,
       orderbuy,
-      coa:  ($("coa").value || "").trim() || null,
+      chem_price,
+      price_gram,
+      coa: ($("coa").value || "").trim() || null,
       msds: ($("msds").value || "").trim() || null,
     };
 
     try {
-      const res = await fetch("/productorderdetail/create", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || `บันทึกไม่สำเร็จ (${res.status})`);
-
-      alert("บันทึกสำเร็จ");
+      await tryUpdate(payload);
+      alert("อัปเดตข้อมูลเรียบร้อยแล้ว");
       location.href = "/productorderdetail/index.html";
     } catch (err) {
       console.error(err);
-      alert(err.message || "บันทึกไม่สำเร็จ");
+      alert(err.message || "อัปเดตไม่สำเร็จ");
     }
   });
 });

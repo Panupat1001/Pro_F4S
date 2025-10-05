@@ -134,9 +134,10 @@ const buyBtn = disableBuy
        สั่งซื้อ
      </a>`
   : `<a class="btn btn-sm btn-warning"
-         href="/productorderdetail/buy.html?chem_id=${encodeURIComponent(x.chem_id)}&chem_name=${encodeURIComponent(x.chem_name)}">
+         href="/productorderdetail/buy.html?pod_id=${encodeURIComponent(x.pod_id)}&chem_id=${encodeURIComponent(x.chem_id)}&chem_name=${encodeURIComponent(x.chem_name)}">
        สั่งซื้อ
      </a>`;
+
 
 
     return `
