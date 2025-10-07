@@ -173,69 +173,103 @@ router.get('/read/:id', (req, res) => {
  *  → คำนวณราคา/กรัม (price_gram)
  *  → อัปเดต chem.price_gram และ chem.chem_quantity
  * ========================= */
+// routes/productorderdetail.js
+// routes/productorderdetail.js (เฉพาะ handler PUT /productorderdetail/update)
 router.put('/update', (req, res) => {
   const { pod_id, chem_id, company_id, orderbuy, chem_price, coa, msds } = req.body || {};
 
-  const podId = Number(pod_id);
-  const chemId = Number(chem_id);
-  const compId = Number(company_id);
-  const buyQty = Number(orderbuy);
+  const podId      = Number(pod_id);
+  const chemId     = Number(chem_id);
+  const compId     = Number(company_id);
+  const buyQty     = Number(orderbuy);
   const totalPrice = Number(chem_price);
 
+  // คำนวณราคา/กรัม (ไว้ไปตั้งใน chem.price_gram)
+  const unitPrice = (Number.isFinite(buyQty) && buyQty > 0)
+    ? Math.round((totalPrice / buyQty) * 100) / 100
+    : 0;
+
+  // ตรวจอินพุตขั้นต่ำ
   if (!podId || !chemId || !compId || !Number.isFinite(buyQty) || buyQty <= 0) {
     return res.status(400).json({ error: 'ข้อมูลไม่ครบ หรือ orderbuy ต้อง > 0' });
   }
 
-  // ราคา/กรัม (กรณีนี้ = ราคารวม / ปริมาณที่สั่งซื้อ)
-  const pricePerGram = buyQty > 0 ? Math.round((totalPrice / buyQty) * 100) / 100 : 0;
+  connection.beginTransaction((err) => {
+    if (err) return res.status(500).json({ error: err.message });
 
-  connection.beginTransaction((errTx) => {
-    if (errTx) return res.status(500).json({ error: errTx.message });
+    // 1) อัปเดตรายการใน productorderdetail (ตัด updated_at ออก และไม่ยุ่ง price_gram)
+    const sqlUpdPOD = `
+      UPDATE productorderdetail
+      SET company_id = ?,
+          orderbuy   = ?,
+          chem_price = ?,
+          coa        = ?,
+          msds       = ?
+      WHERE pod_id = ? AND chem_id = ?
+      LIMIT 1
+    `;
+    const podParams = [
+      compId,
+      buyQty,
+      totalPrice,
+      (coa ?? null),
+      (msds ?? null),
+      podId,
+      chemId
+    ];
 
-    // 1) (เดิม) ดึง orderuse เดิมของแถวนี้ — จะเก็บไว้ก่อนก็ได้ แม้จะไม่ได้ใช้แล้ว
-    const sqlGet = `SELECT orderuse FROM productorderdetail WHERE pod_id = ? LIMIT 1`;
-    connection.query(sqlGet, [podId], (e1, rows1) => {
-      if (e1) return connection.rollback(() => res.status(500).json({ error: e1.message }));
+    connection.query(sqlUpdPOD, podParams, (e1, r1) => {
+      if (e1) {
+        return connection.rollback(() => res.status(500).json({ error: e1.message }));
+      }
+      if (!r1.affectedRows) {
+        return connection.rollback(() => res.status(404).json({ error: 'ไม่พบรายการที่ต้องการอัปเดต' }));
+      }
 
-      // เดิม: ใช้ไปคำนวณสต๊อก — ตอนนี้เรา "ไม่อัปเดต chem_quantity" แล้ว จึงไม่ต้องใช้ตัวแปรนี้
-      // const oldUse = Number(rows1?.[0]?.orderuse);
-      // const useQty = Number.isFinite(oldUse) ? oldUse : 0;
-
-      // 2) อัปเดต productorderdetail (เหมือนเดิม)
-      const sqlUpdPOD = `
-        UPDATE productorderdetail
-        SET company_id = ?, orderbuy = ?, chem_price = ?, coa = ?, msds = ?
-        WHERE pod_id = ? LIMIT 1
+      // 2) เพิ่มสต๊อก + ตั้งราคา/กรัม ที่ตาราง chem
+      const sqlUpdChem = `
+        UPDATE chem
+        SET price_gram    = ?,
+            chem_quantity = COALESCE(chem_quantity, 0) + ?
+        WHERE chem_id = ?
+        LIMIT 1
       `;
-      const valPOD = [compId, buyQty, totalPrice, coa ?? null, msds ?? null, podId];
-
-      connection.query(sqlUpdPOD, valPOD, (e2, r2) => {
-        if (e2) return connection.rollback(() => res.status(500).json({ error: e2.message }));
-        if (!r2 || r2.affectedRows === 0) {
-          return connection.rollback(() => res.status(404).json({ error: 'ไม่พบ productorderdetail' }));
+      connection.query(sqlUpdChem, [unitPrice, buyQty, chemId], (e2, r2) => {
+        if (e2) {
+          return connection.rollback(() => res.status(500).json({ error: e2.message }));
+        }
+        if (!r2.affectedRows) {
+          return connection.rollback(() => res.status(404).json({ error: 'ไม่พบสารเคมีที่ต้องการอัปเดต' }));
         }
 
-        // 3) แก้จุดนี้: อัปเดตเฉพาะ price_gram "ไม่แตะ chem_quantity"
-        const sqlUpdChem = `
-          UPDATE chem
-          SET price_gram = ?
-          WHERE chem_id = ? LIMIT 1
+        // 3) ดึงค่าล่าสุดส่งกลับ (ถ้าอยากใช้แสดงผลหน้าเว็บ)
+        const sqlGetChem = `
+          SELECT chem_id, chem_quantity, price_gram
+          FROM chem
+          WHERE chem_id = ?
+          LIMIT 1
         `;
-        const valChem = [pricePerGram, chemId];
-
-        connection.query(sqlUpdChem, valChem, (e3, r3) => {
-          if (e3) return connection.rollback(() => res.status(500).json({ error: e3.message }));
+        connection.query(sqlGetChem, [chemId], (e3, rows3) => {
+          if (e3) {
+            return connection.rollback(() => res.status(500).json({ error: e3.message }));
+          }
 
           connection.commit((e4) => {
-            if (e4) return connection.rollback(() => res.status(500).json({ error: e4.message }));
-            res.json({
-              message: 'updated',
-              pod_id: podId,
-              chem_id: chemId,
-              price_gram: pricePerGram,
-              // ปรับข้อความอธิบายด้วย เพื่อไม่ให้สับสนว่าไม่ได้อัปเดตสต๊อกแล้ว
-              note: 'chem_quantity not updated in this endpoint',
-              affected: { productorderdetail: r2.affectedRows, chem: r3.affectedRows }
+            if (e4) {
+              return connection.rollback(() => res.status(500).json({ error: e4.message }));
+            }
+            return res.json({
+              message: 'อัปเดตการสั่งซื้อสำเร็จ และเพิ่มสต๊อกเรียบร้อย',
+              productorderdetail: {
+                pod_id: podId,
+                chem_id: chemId,
+                company_id: compId,
+                orderbuy: buyQty,
+                chem_price: totalPrice,
+                coa: coa ?? null,
+                msds: msds ?? null
+              },
+              chem: rows3?.[0] ?? null
             });
           });
         });
@@ -243,6 +277,7 @@ router.put('/update', (req, res) => {
     });
   });
 });
+
 
 
 module.exports = router;
