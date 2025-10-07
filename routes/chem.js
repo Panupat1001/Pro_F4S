@@ -158,5 +158,39 @@ router.patch('/:id/price-gram', (req, res) => {
   });
 });
 
+// ตัดสต็อกเคมี: chem_quantity = GREATEST(chem_quantity - orderuse, 0)
+router.post('/decrease-quantity', (req, res) => {
+  const { chem_id, orderuse } = req.body || {};
+  const chemId = Number(chem_id);
+  const useQty = Number(orderuse);
+
+  if (!Number.isFinite(chemId) || chemId <= 0) {
+    return res.status(400).json({ error: 'chem_id is required' });
+  }
+  if (!Number.isFinite(useQty) || useQty <= 0) {
+    return res.status(400).json({ error: 'orderuse must be > 0' });
+  }
+
+  const sql = `
+    UPDATE chem
+    SET chem_quantity = GREATEST(chem_quantity - ?, 0)
+    WHERE chem_id = ?
+  `;
+  connection.query(sql, [useQty, chemId], (err, result) => {
+    if (err) {
+      console.error('[chem decrease] update error:', err.message);
+      return res.status(500).json({ error: err.message });
+    }
+    // ดึงค่าใหม่กลับไปให้หน้า UI อัปเดตได้
+    connection.query('SELECT chem_quantity FROM chem WHERE chem_id = ? LIMIT 1', [chemId], (err2, rows) => {
+      if (err2) {
+        console.error('[chem decrease] select error:', err2.message);
+        return res.status(500).json({ error: err2.message });
+      }
+      const newQty = rows?.[0]?.chem_quantity ?? null;
+      return res.json({ success: true, chem_id: chemId, chem_quantity: newQty });
+    });
+  });
+});
 
 module.exports = router;

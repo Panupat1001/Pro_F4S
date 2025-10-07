@@ -170,7 +170,7 @@ async function fillMissingChemNames(rows){
 }
 
 // ---------- คำนวณ Need / Actual ----------
-// need = (% * qty) / 100
+// need   = (% * qty) / 100
 // actual = max( need - chem_quantity, 0 )
 function computeChemLines(chems, orderQtyGram) {
   const qty = Number(orderQtyGram || 0);
@@ -199,7 +199,10 @@ function computeChemLines(chems, orderQtyGram) {
   });
 }
 
-// ===== One-click lock helpers =====
+let CURRENT_PROORDER_ID = 0;
+let CURRENT_LINES = []; // เก็บผล computeChemLines ล่าสุดเพื่อใช้ตอน "ผลิตสินค้า"
+
+// ===== One-click lock helpers (สำหรับปุ่มสั่งซื้อรายแถว) =====
 const orderedKey = (proorderId) => `poOrdered:${proorderId}`;
 function loadOrderedMap(proorderId){
   try { return JSON.parse(localStorage.getItem(orderedKey(proorderId)) || '{}'); }
@@ -218,8 +221,6 @@ function markChemOrderedUI(chemId){
   });
 }
 
-let CURRENT_PROORDER_ID = 0;
-
 // ---------- Main ----------
 document.addEventListener("DOMContentLoaded", async () => {
   let proorderId = toInt(getParam("id") ?? getParam("proorder_id"), 0);
@@ -237,6 +238,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   const btnEdit = $("btnEdit");
   if (btnEdit) btnEdit.href = `/productorder/edit.html?id=${encodeURIComponent(proorderId)}`;
 
+  // โหลดรายละเอียดออเดอร์
   let order;
   try {
     const o = await fetchJson(ORDER_URL(proorderId));
@@ -277,6 +279,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("o_exp")  && ($("o_exp").value  = fmtDate(expDate));
   $("o_qty")  && ($("o_qty").value  = (qtyGram !== "" && qtyGram != null) ? qtyGram : "-");
 
+  // โหลดรายชื่อเคมี
   let baseChems = [];
   if (Array.isArray(order.chems) && order.chems.length){
     baseChems = order.chems.map(normalizeChemRow);
@@ -284,52 +287,69 @@ document.addEventListener("DOMContentLoaded", async () => {
     baseChems = await fetchChemsByOrderId(proorderId, productId);
   }
   await fillMissingChemNames(baseChems);
-  const list = computeChemLines(baseChems, qtyGram);
+  CURRENT_LINES = computeChemLines(baseChems, qtyGram);
 
-  const tbody = $("chemTableBody");
-  if (tbody) {
-    const orderedMap = loadOrderedMap(CURRENT_PROORDER_ID);
-    tbody.innerHTML = list.length
-      ? list.map((x) => {
-          const already = !!orderedMap[x.chemId];
-          const noNeed  = !(x.need > 0);
-          const noShort = x.actual <= 0;
-          const disable = already || noNeed || noShort;
-
-          const percentCell = x.hasPercent
-            ? `${Number(x.percent).toFixed(2)}%`
-            : `<span class="badge bg-warning text-dark">ไม่มี %</span>`;
-
-          const btnText = already ? 'เพิ่มแล้ว ✓' : (noShort ? 'พอเพียง' : 'สั่งซื้อ');
-
-          return `
-            <tr data-chem-id="${x.chemId}">
-              <td>${esc(x.name)}</td>
-              <td>${percentCell}</td>
-              <td>${Number(x.need).toFixed(2)}</td>
-              <td>${Number.isFinite(Number(x.remain)) ? Number(x.remain).toFixed(2) : esc(String(x.remain))}</td>
-              <td>${Number(x.actual).toFixed(2)}</td>
-              <td class="text-end">
-                <button
-                  type="button"
-                  class="btn btn-sm ${disable ? 'btn-secondary' : 'btn-success'} order-chem"
-                  data-chem-id="${x.chemId}"
-                  data-prodetail-id="${x.prodetailId}"
-                  data-qty="${Number(x.actual).toFixed(2)}"
-                  data-ordered="${already ? '1' : '0'}"
-                  ${disable ? 'disabled' : ''}>
-                  ${btnText}
-                </button>
-              </td>
-            </tr>
-          `;
-        }).join("")
-      : `<tr><td colspan="6" class="text-center text-muted">ไม่มีรายการสารเคมี</td></tr>`;
-  }
+  renderTable(CURRENT_LINES);
+  refreshProduceButton(); // คุมปุ่มผลิตหลังเรนเดอร์
 
   const alertBox = $("alertBox");
   if (alertBox) alertBox.classList.add("d-none");
 });
+
+// ---------- Render ----------
+function renderTable(list){
+  const tbody = $("chemTableBody");
+  if (!tbody) return;
+
+  const orderedMap = loadOrderedMap(CURRENT_PROORDER_ID);
+  tbody.innerHTML = list.length
+    ? list.map((x) => {
+        const already = !!orderedMap[x.chemId];
+        const noNeed  = !(x.need > 0);
+        const noShort = x.actual <= 0;
+        const disable = already || noNeed || noShort;
+
+        const percentCell = x.hasPercent
+          ? `${Number(x.percent).toFixed(2)}%`
+          : `<span class="badge bg-warning text-dark">ไม่มี %</span>`;
+
+        const btnText = already ? 'เพิ่มแล้ว ✓' : (noShort ? 'พอเพียง' : 'สั่งซื้อ');
+
+        return `
+          <tr data-chem-id="${x.chemId}">
+            <td>${esc(x.name)}</td>
+            <td>${percentCell}</td>
+            <td class="need-cell">${Number(x.need).toFixed(2)}</td>
+            <td class="remain-cell">${Number.isFinite(Number(x.remain)) ? Number(x.remain).toFixed(2) : esc(String(x.remain))}</td>
+            <td class="actual-cell">${Number(x.actual).toFixed(2)}</td>
+            <td class="text-end">
+              <button
+                type="button"
+                class="btn btn-sm ${disable ? 'btn-secondary' : 'btn-success'} order-chem"
+                data-chem-id="${x.chemId}"
+                data-prodetail-id="${x.prodetailId}"
+                data-qty="${Number(x.actual).toFixed(2)}"
+                data-ordered="${already ? '1' : '0'}"
+                ${disable ? 'disabled' : ''}>
+                ${btnText}
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join("")
+    : `<tr><td colspan="6" class="text-center text-muted">ไม่มีรายการสารเคมี</td></tr>`;
+}
+
+// ---------- ปุ่มผลิตรวมเปิดได้เมื่อคงเหลือเพียงพอทุกตัว ----------
+function refreshProduceButton() {
+  const btnProduce = $("btnProduce");
+  if (!btnProduce) return;
+  const canProduce =
+    (CURRENT_LINES.length > 0) &&
+    CURRENT_LINES.every(x => Number(x.remain) >= Number(x.need));
+  btnProduce.disabled = !canProduce;
+  btnProduce.title = canProduce ? '' : 'ต้องมีปริมาณคงเหลือของทุกสารมากกว่าหรือเท่ากับปริมาณที่ต้องการใช้';
+}
 
 // ===== helper: ยิงไปสร้าง/บวกเพิ่ม productorderdetail =====
 async function postPOD(payload) {
@@ -352,7 +372,28 @@ async function postPOD(payload) {
   throw lastErr || new Error('all endpoints failed');
 }
 
-// ===== จับคลิกปุ่ม "สั่งซื้อ" =====
+// ===== helper: ยิง API ลดสต็อกเคมี =====
+async function postChemDecrease(payload) {
+  const urls = ['/chem/decrease-quantity', '/api/chem/decrease-quantity'];
+  let lastErr;
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || String(res.status));
+      return data; // { success, chem_id, chem_quantity }
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error('all endpoints failed');
+}
+
+// ===== จับคลิกปุ่ม "สั่งซื้อ" (ต่อแถว) =====
 document.addEventListener('click', async (ev) => {
   const btn = ev.target.closest('.order-chem');
   if (!btn) return;
@@ -362,7 +403,7 @@ document.addEventListener('click', async (ev) => {
   const proorderId  = CURRENT_PROORDER_ID || toInt(getParam('id') ?? getParam('proorder_id'), 0);
   const chemId      = toInt(btn.dataset.chemId, 0);
   const prodetailId = toInt(btn.dataset.prodetailId, 0);
-  const qty         = Number(btn.dataset.qty || 0);   // จำนวนที่ “ต้องสั่งเพิ่ม”
+  const qty         = Number(btn.dataset.qty || 0);   // จำนวนที่ “ต้องสั่งเพิ่ม” (actual)
 
   if (!proorderId || !chemId || !(qty > 0)) {
     showAlert('warning', 'ข้อมูลไม่ครบ หรือไม่มีจำนวนที่ต้องสั่งเพิ่ม (qty <= 0)');
@@ -375,15 +416,13 @@ document.addEventListener('click', async (ev) => {
   btn.textContent = 'กำลังเพิ่ม...';
 
   try {
-    // ✅ ส่งเฉพาะ orderuse
+    // ส่งเฉพาะ orderuse = actual
     const payload = {
       proorder_id: proorderId,
       chem_id: chemId,
       orderuse: qty,
       prodetail_id: prodetailId || null
     };
-
-    // กันพลาด: ตัด field orderbuy ทิ้งถ้ามีหลงมา
     delete payload.orderbuy;
 
     await postPOD(payload);
@@ -399,6 +438,99 @@ document.addEventListener('click', async (ev) => {
     btn.disabled = false;
     btn.textContent = oldText;
     showAlert('danger', 'เพิ่มรายการไม่สำเร็จ: ' + e.message);
+    return;
   }
+
+  btn.removeAttribute('data-busy');
+  btn.textContent = oldText;
 });
 
+// ===== จับคลิกปุ่ม "ผลิตสินค้า" (รวมทุกสารของ proorder เดียวกัน) =====
+document.addEventListener('click', async (ev) => {
+  const btn = ev.target.closest('#btnProduce');
+  if (!btn) return;
+  ev.preventDefault();
+  if (btn.disabled || btn.dataset.busy === '1') return;
+
+  // ต้องผ่านเงื่อนไข remain >= need ของทุกตัวอยู่แล้ว (จาก refreshProduceButton)
+  const targets = (CURRENT_LINES || []).filter(x => Number(x.need) > 0);
+  if (targets.length === 0) {
+    showAlert('warning', 'ไม่มีปริมาณที่ต้องใช้');
+    return;
+  }
+
+  const totalNeed = targets.reduce((s, x) => s + Number(x.need || 0), 0);
+  if (!confirm(`ยืนยัน "ผลิตสินค้า" โดยตัดสต็อกทั้งหมด ${targets.length} รายการ\nรวมปริมาณที่ต้องใช้ ${totalNeed.toFixed(2)} กรัม ?`)) {
+    return;
+  }
+
+  btn.dataset.busy = '1';
+  const oldText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'กำลังตัดสต็อก...';
+
+  try {
+    // ยิงแบบขนาน: ลดสต็อก = need ต่อรายการ
+    const results = await Promise.allSettled(
+      targets.map(t => postChemDecrease({ chem_id: t.chemId, orderuse: Number(t.need) }))
+    );
+
+    let ok = 0, fail = 0;
+    results.forEach((r, idx) => {
+      const t = targets[idx];
+      const tr = document.querySelector(`tr[data-chem-id="${t.chemId}"]`);
+      if (r.status === 'fulfilled') {
+        ok++;
+
+        // อัปเดต UI
+        const needTd   = tr?.querySelector('.need-cell');
+        const remainTd = tr?.querySelector('.remain-cell');
+        const actualTd = tr?.querySelector('.actual-cell');
+
+        const needVal   = Number(needTd?.textContent || t.need || 0);
+        const oldRemain = Number(remainTd?.textContent || t.remain || 0);
+
+        // หลังผลิต: คงเหลือใหม่ = เดิม - need
+        const remainNow = Math.max(oldRemain - needVal, 0);
+        if (remainTd) remainTd.textContent = remainNow.toFixed(2);
+
+        // หลังผลิตสำหรับออเดอร์นี้: need = 0, actual = 0
+        if (needTd)   needTd.textContent   = '0.00';
+        if (actualTd) actualTd.textContent = '0.00';
+
+        // ปิดปุ่ม "สั่งซื้อ" แถวนี้
+        const orderBtn = tr?.querySelector('.order-chem');
+        if (orderBtn) {
+          orderBtn.disabled = true;
+          orderBtn.classList.remove('btn-success');
+          orderBtn.classList.add('btn-secondary');
+          orderBtn.textContent = 'พอเพียง';
+          orderBtn.dataset.qty = '0';
+        }
+
+        // sync กลับเข้า CURRENT_LINES
+        t.remain = remainNow;
+        t.need   = 0;
+        t.actual = 0;
+      } else {
+        fail++;
+      }
+    });
+
+    // อัปเดตสถานะปุ่มผลิต (หลังผลิต need ทุกตัวจะเป็น 0)
+    refreshProduceButton();
+
+    if (fail === 0) {
+      showAlert('success', `ผลิตสำเร็จ ตัดสต็อก ${ok} รายการ`);
+    } else if (ok === 0) {
+      showAlert('danger', `ผลิตไม่สำเร็จทั้งหมด (${fail} รายการ)`);
+    } else {
+      showAlert('warning', `สำเร็จ ${ok} รายการ / ล้มเหลว ${fail} รายการ`);
+    }
+  } catch (e) {
+    showAlert('danger', 'ตัดสต็อกไม่สำเร็จ: ' + e.message);
+  }
+
+  btn.removeAttribute('data-busy');
+  btn.textContent = oldText;
+});
