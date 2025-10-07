@@ -200,4 +200,51 @@ router.get('/read', (req, res) => {
   }
 });
 
+router.put('/produce/:proorder_id', (req, res) => {
+  const proorderId = Number(req.params.proorder_id);
+  if (!proorderId) return res.status(400).json({ error: 'proorder_id is required' });
+
+  connection.beginTransaction((err) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    // 1) ดึงสารเคมีทั้งหมดในสูตรของ order นี้
+    const sqlGetChem = `
+      SELECT pod.chem_id, pod.orderuse AS qty, c.price_gram
+      FROM productorderdetail pod
+      JOIN chem c ON c.chem_id = pod.chem_id
+      WHERE pod.proorder_id = ?
+    `;
+
+    connection.query(sqlGetChem, [proorderId], (e1, rows) => {
+      if (e1) return connection.rollback(() => res.status(500).json({ error: e1.message }));
+
+      if (!rows || rows.length === 0)
+        return connection.rollback(() => res.status(404).json({ error: 'ไม่พบสูตรของคำสั่งผลิตนี้' }));
+
+      // 2) คำนวณราคารวม
+      let total = 0;
+      for (const r of rows) {
+        const qty = Number(r.qty) || 0;
+        const priceGram = Number(r.price_gram) || 0;
+        total += qty * priceGram;
+      }
+
+      // 3) อัปเดตราคา + status
+      const sqlUpdate = `
+        UPDATE productorder
+        SET price = ?, status = 1
+        WHERE proorder_id = ?
+      `;
+      connection.query(sqlUpdate, [total, proorderId], (e2) => {
+        if (e2) return connection.rollback(() => res.status(500).json({ error: e2.message }));
+
+        connection.commit((e3) => {
+          if (e3) return connection.rollback(() => res.status(500).json({ error: e3.message }));
+          res.json({ message: 'อัปเดตราคาสำเร็จ', total_price: total });
+        });
+      });
+    });
+  });
+});
+
 module.exports = router;

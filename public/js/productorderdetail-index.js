@@ -161,6 +161,13 @@ document.addEventListener("DOMContentLoaded", () => {
                สั่งซื้อ
              </a>`;
 
+        // 🔧 ลิงก์แก้ไข: ส่ง pod_id, chem_id, chem_name ไปหน้า edit
+        const editUrl = `/productorderdetail/edit.html?pod_id=${encodeURIComponent(
+          x.pod_id
+        )}&chem_id=${encodeURIComponent(
+          x.chem_id
+        )}&chem_name=${encodeURIComponent(x.chem_name)}`;
+
         return `
         <tr>
           <td>${esc(x.chem_name)}</td>
@@ -173,13 +180,10 @@ document.addEventListener("DOMContentLoaded", () => {
           <td class="text-center">${pdfLinkHTML(msdsUrl, "MSDS")}</td>
           <td class="text-nowrap">
             ${buyBtn}
-            <a href="/productorderdetail/edit.html?id=${encodeURIComponent(
-              x.pod_id
-            )}"
-               class="btn btn-dark btn-sm btn-edit"
-               data-id="${esc(x.pod_id)}"
-               title="แก้ไข">
-               <i class="bi bi-pencil"></i>
+            <a class="btn btn-sm btn-outline-secondary ms-1"
+               href="${editUrl}"
+               title="แก้ไข COA/MSDS">
+              <i class="bi bi-pencil"></i>
             </a>
           </td>
         </tr>`;
@@ -296,12 +300,5 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  // ===== Edit Click =====
-  tbody.addEventListener("click", (e) => {
-    const btn = e.target.closest(".btn-edit");
-    if (!btn) return;
-    const id = btn.getAttribute("data-id");
-    if (!id) return;
-    location.href = `/productorderdetail/edit.html?id=${encodeURIComponent(id)}`;
-  });
+  // (ลบ handler .btn-edit เดิมทิ้ง ไม่จำเป็นแล้ว)
 });

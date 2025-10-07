@@ -27,6 +27,7 @@ const productDetailRoutes = require('./routes/productdetail');
 const productorderRoutes = require('./routes/productorder');
 const productOrderDetailRoutes = require('./routes/productorderdetail');
 const uploadRouter = require('./routes/upload');
+const showdetailRoute = require('./routes/showdetail');
 
 // ---- Mount แบบ legacy และแบบ /api (ให้เข้าทั้งสอง path) ----
 app.use('/user', userRoutes);
@@ -56,7 +57,7 @@ app.use('/api/productorderdetail', productOrderDetailRoutes);
 app.use('/upload', uploadRouter);
 app.use('/api/upload', uploadRouter);
 
-
+app.use('/showdetail', showdetailRoute);  
 // root
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'login', 'login.html'));
