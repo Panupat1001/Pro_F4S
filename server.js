@@ -7,7 +7,16 @@ const app = express();
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
-
+app.use(
+  '/files',
+  express.static(path.join(__dirname, 'uploads'), {
+    etag: false,
+    lastModified: false,
+    setHeaders: (res) => {
+      res.setHeader('Cache-Control', 'no-store');
+    },
+  })
+);
 // --- Routes ---
 const userRoutes = require('./routes/user');
 const brandRoutes = require('./routes/brand');
@@ -46,6 +55,7 @@ app.use('/api/productorderdetail', productOrderDetailRoutes);
 
 app.use('/upload', uploadRouter);
 app.use('/api/upload', uploadRouter);
+
 
 // root
 app.get('/', (req, res) => {

@@ -106,34 +106,37 @@
             />
           </div>
 
-          <!-- COA / MSDS -->
-          <div class="col-md-6">
-            <label for="coa" class="form-label"
-              >COA (ลิงก์หรือรายละเอียด)</label
-            >
-            <div class="input-group">
-              <input
-                id="coa"
-                type="text"
-                class="form-control"
-                placeholder="เช่น URL เอกสาร COA"
-              />
-              <span class="input-group-text"><i class="bi bi-upload"></i></span>
-            </div>
-          </div>
+<!-- COA -->
+<div class="col-md-6">
+  <label class="form-label">COA (PDF)</label>
+  <div class="input-group">
+    <input id="coa" type="text" class="form-control" placeholder="URL COA" readonly />
+    <a id="coa_link" class="btn btn-outline-secondary" target="_blank" rel="noopener" disabled>เปิด</a>
+  </div>
+  <div class="input-group mt-2">
+    <input id="coa_file" type="file" accept="application/pdf" class="form-control" />
+    <button id="btnUploadCoa" type="button" class="btn btn-outline-primary">
+      <i class="bi bi-upload"></i> อัปโหลด COA
+    </button>
+  </div>
+  <div class="form-text">รองรับไฟล์ .pdf ขนาด ≤ 10MB</div>
+</div>
 
-          <div class="col-md-6">
-            <label for="msds" class="form-label"
-              >MSDS (ลิงก์หรือรายละเอียด)</label
-            >
-            <div class="input-group">
-              <input
-                id="msds"
-                type="text"
-                class="form-control"
-                placeholder="เช่น URL เอกสาร MSDS"
-              />
-              <span class="input-group-text"><i class="bi bi-upload"></i></span>
+<!-- MSDS -->
+<div class="col-md-6">
+  <label class="form-label">MSDS (PDF)</label>
+  <div class="input-group">
+    <input id="msds" type="text" class="form-control" placeholder="URL MSDS" readonly />
+    <a id="msds_link" class="btn btn-outline-secondary" target="_blank" rel="noopener" disabled>เปิด</a>
+  </div>
+  <div class="input-group mt-2">
+    <input id="msds_file" type="file" accept="application/pdf" class="form-control" />
+    <button id="btnUploadMsds" type="button" class="btn btn-outline-primary">
+      <i class="bi bi-upload"></i> อัปโหลด MSDS
+    </button>
+  </div>
+  <div class="form-text">รองรับไฟล์ .pdf ขนาด ≤ 10MB</div>
+</div>
             </div>
           </div>
         </div>

@@ -234,3 +234,74 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 });
+
+// ===== Upload helpers =====
+function enableLink(aEl, url) {
+  if (!aEl) return;
+  if (url) {
+    aEl.href = url;
+    aEl.removeAttribute("disabled");
+    aEl.classList.remove("disabled");
+  } else {
+    aEl.removeAttribute("href");
+    aEl.setAttribute("disabled", "true");
+    aEl.classList.add("disabled");
+  }
+}
+
+async function uploadPdf(fieldName) {
+  // fieldName = 'coa' | 'msds'
+  const podId = Number(document.getElementById("pod_id")?.value || 0);
+  if (!podId) return alert("ยังไม่พบ pod_id ของรายการนี้ (ยังไม่โหลดข้อมูลเสร็จ?)");
+
+  const fileInput = document.getElementById(fieldName + "_file");
+  const textBox   = document.getElementById(fieldName);
+  const linkBtn   = document.getElementById(fieldName + "_link");
+
+  const file = fileInput?.files?.[0];
+  if (!file) return alert("กรุณาเลือกไฟล์ก่อน");
+
+  if (file.type !== "application/pdf") {
+    return alert("รองรับเฉพาะไฟล์ PDF เท่านั้น");
+  }
+  if (file.size > 10 * 1024 * 1024) {
+    return alert("ไฟล์เกิน 10MB");
+  }
+
+  const fd = new FormData();
+  fd.append("pod_id", String(podId));
+  fd.append(fieldName, file); // ชื่อคีย์ต้องเป็น 'coa' หรือ 'msds'
+
+  try {
+    const res = await fetch("/upload/coa-msds", {
+      method: "PUT",
+      body: fd,
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `อัปโหลดไม่สำเร็จ (${res.status})`);
+
+    // เซ็ต URL ที่ได้กลับมา
+    const url = data[fieldName] || null;
+    if (url) {
+      if (textBox) textBox.value = url;
+      enableLink(linkBtn, url);
+      alert(`อัปโหลด ${fieldName.toUpperCase()} สำเร็จ`);
+    } else {
+      alert(`อัปโหลดสำเร็จ แต่ไม่พบ URL ของ ${fieldName.toUpperCase()}`);
+    }
+  } catch (err) {
+    console.error(err);
+    alert(err.message || "อัปโหลดไม่สำเร็จ");
+  } finally {
+    // ล้างไฟล์ที่เลือก
+    if (fileInput) fileInput.value = "";
+  }
+}
+
+// ปุ่มอัปโหลด
+document.getElementById("btnUploadCoa")?.addEventListener("click", () => uploadPdf("coa"));
+document.getElementById("btnUploadMsds")?.addEventListener("click", () => uploadPdf("msds"));
+
+// ถ้าอยากให้อัปโหลดอัตโนมัติเมื่อเลือกไฟล์ (ไม่ต้องกดปุ่ม)
+// document.getElementById("coa_file")?.addEventListener("change", () => uploadPdf("coa"));
+// document.getElementById("msds_file")?.addEventListener("change", () => uploadPdf("msds"));

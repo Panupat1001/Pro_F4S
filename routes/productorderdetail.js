@@ -192,16 +192,16 @@ router.put('/update', (req, res) => {
   connection.beginTransaction((errTx) => {
     if (errTx) return res.status(500).json({ error: errTx.message });
 
-    // 1) ดึง orderuse เดิมของแถวนี้ (อาจเป็น NULL)
+    // 1) (เดิม) ดึง orderuse เดิมของแถวนี้ — จะเก็บไว้ก่อนก็ได้ แม้จะไม่ได้ใช้แล้ว
     const sqlGet = `SELECT orderuse FROM productorderdetail WHERE pod_id = ? LIMIT 1`;
     connection.query(sqlGet, [podId], (e1, rows1) => {
       if (e1) return connection.rollback(() => res.status(500).json({ error: e1.message }));
 
-      // แปลง NULL -> 0
-      const oldUse = Number(rows1?.[0]?.orderuse);
-      const useQty = Number.isFinite(oldUse) ? oldUse : 0;
+      // เดิม: ใช้ไปคำนวณสต๊อก — ตอนนี้เรา "ไม่อัปเดต chem_quantity" แล้ว จึงไม่ต้องใช้ตัวแปรนี้
+      // const oldUse = Number(rows1?.[0]?.orderuse);
+      // const useQty = Number.isFinite(oldUse) ? oldUse : 0;
 
-      // 2) อัปเดต productorderdetail (ไม่ต้องมี price_gram ก็ได้)
+      // 2) อัปเดต productorderdetail (เหมือนเดิม)
       const sqlUpdPOD = `
         UPDATE productorderdetail
         SET company_id = ?, orderbuy = ?, chem_price = ?, coa = ?, msds = ?
@@ -215,14 +215,13 @@ router.put('/update', (req, res) => {
           return connection.rollback(() => res.status(404).json({ error: 'ไม่พบ productorderdetail' }));
         }
 
-        // 3) อัปเดต chem: ตั้งราคา/กรัม + อัปเดตสต๊อก  (+ orderbuy - orderuse)
+        // 3) แก้จุดนี้: อัปเดตเฉพาะ price_gram "ไม่แตะ chem_quantity"
         const sqlUpdChem = `
           UPDATE chem
-          SET price_gram = ?,
-              chem_quantity = GREATEST(0, COALESCE(chem_quantity,0) + ? - ?)
+          SET price_gram = ?
           WHERE chem_id = ? LIMIT 1
         `;
-        const valChem = [pricePerGram, buyQty, useQty, chemId];
+        const valChem = [pricePerGram, chemId];
 
         connection.query(sqlUpdChem, valChem, (e3, r3) => {
           if (e3) return connection.rollback(() => res.status(500).json({ error: e3.message }));
@@ -234,7 +233,8 @@ router.put('/update', (req, res) => {
               pod_id: podId,
               chem_id: chemId,
               price_gram: pricePerGram,
-              stock_formula: 'chem_quantity = chem_quantity + orderbuy - orderuse (min 0)',
+              // ปรับข้อความอธิบายด้วย เพื่อไม่ให้สับสนว่าไม่ได้อัปเดตสต๊อกแล้ว
+              note: 'chem_quantity not updated in this endpoint',
               affected: { productorderdetail: r2.affectedRows, chem: r3.affectedRows }
             });
           });
@@ -243,5 +243,6 @@ router.put('/update', (req, res) => {
     });
   });
 });
+
 
 module.exports = router;

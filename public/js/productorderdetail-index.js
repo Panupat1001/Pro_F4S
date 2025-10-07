@@ -13,10 +13,10 @@ document.addEventListener("DOMContentLoaded", () => {
   let currentPage = 1;
 
   // สถานะการเรียง
-  let sortField = null;      // เช่น "pod_id"
+  let sortField = null;
   let sortDirection = "asc"; // "asc" | "desc"
 
-  // Helpers
+  // ===== Helpers =====
   const getParam = (k, d = null) =>
     new URLSearchParams(location.search).get(k) ?? d;
 
@@ -30,9 +30,24 @@ document.addEventListener("DOMContentLoaded", () => {
     return Number.isFinite(v) ? v.toLocaleString() : "-";
   };
 
-  // --- Load data ---
+  function normalizePdfUrl(u) {
+    if (!u) return null;
+    return u.startsWith("/uploads/") ? u.replace("/uploads/", "/files/") : u;
+  }
+
+  function pdfLinkHTML(url, label) {
+    if (!url) return '<span class="text-muted">-</span>';
+    const safe = `${url}${url.includes("?") ? "&" : "?"}v=${Date.now()}`;
+    return `
+      <a href="${safe}" target="_blank" rel="noopener"
+         class="btn btn-sm btn-outline-primary">
+        <i class="bi bi-filetype-pdf"></i> ${label}
+      </a>
+    `;
+  }
+
+  // ===== Load data =====
   async function fetchList(keyword = "") {
-    // รองรับกรองตาม proorder_id ถ้ามีใน URL (?proorder_id=...)
     const proorderId = getParam("proorder_id", "");
     const qs = new URLSearchParams();
     if (keyword) qs.set("q", keyword);
@@ -47,7 +62,7 @@ document.addEventListener("DOMContentLoaded", () => {
     return res.json();
   }
 
-  // --- Sorting UI ---
+  // ===== Sorting =====
   function updateSortIcons() {
     document
       .querySelectorAll("thead th[data-field] .sort-icon")
@@ -103,71 +118,79 @@ document.addEventListener("DOMContentLoaded", () => {
     renderTablePage(fullData, 1);
   }
 
-function renderTablePage(data, page = 1) {
-  const total = data.length;
-  if (total === 0) {
-    if (tableWrapper) tableWrapper.style.display = "none";
-    if (pager) pager.innerHTML = "";
-    tbody.innerHTML = "";
-    return;
+  // ===== Render Table =====
+  function renderTablePage(data, page = 1) {
+    const total = data.length;
+    if (total === 0) {
+      if (tableWrapper) tableWrapper.style.display = "none";
+      if (pager) pager.innerHTML = "";
+      tbody.innerHTML = "";
+      return;
+    }
+    if (tableWrapper) tableWrapper.style.display = "";
+
+    const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    currentPage = Math.min(Math.max(1, page), totalPages);
+
+    const start = (currentPage - 1) * PAGE_SIZE;
+    const end = start + PAGE_SIZE;
+    const items = data.slice(start, end);
+
+    const html = items
+      .map((x) => {
+        const price = Number(x.chem_price);
+        const disableBuy = Number.isFinite(price) && price > 0;
+
+        const coaUrl = normalizePdfUrl(x.coa ?? x.COA ?? null);
+        const msdsUrl = normalizePdfUrl(x.msds ?? x.MSDS ?? null);
+
+        const buyBtn = disableBuy
+          ? `<a class="btn btn-sm btn-secondary disabled"
+                 href="javascript:void(0)"
+                 tabindex="-1"
+                 aria-disabled="true"
+                 title="มีราคาแล้ว — ปิดการสั่งซื้อ">
+               สั่งซื้อ
+             </a>`
+          : `<a class="btn btn-sm btn-warning"
+                 href="/productorderdetail/buy.html?pod_id=${encodeURIComponent(
+                   x.pod_id
+                 )}&chem_id=${encodeURIComponent(
+            x.chem_id
+          )}&chem_name=${encodeURIComponent(x.chem_name)}">
+               สั่งซื้อ
+             </a>`;
+
+        return `
+        <tr>
+          <td>${esc(x.chem_name)}</td>
+          <td>${esc(x.order_lot)}</td>
+          <td>${esc(x.company_name)}</td>
+          <td>${fmtNum(x.orderuse)}</td>
+          <td>${fmtNum(x.chem_price)}</td>
+          <td>${fmtNum(x.orderbuy)}</td>
+          <td class="text-center">${pdfLinkHTML(coaUrl, "COA")}</td>
+          <td class="text-center">${pdfLinkHTML(msdsUrl, "MSDS")}</td>
+          <td class="text-nowrap">
+            ${buyBtn}
+            <a href="/productorderdetail/edit.html?id=${encodeURIComponent(
+              x.pod_id
+            )}"
+               class="btn btn-dark btn-sm btn-edit"
+               data-id="${esc(x.pod_id)}"
+               title="แก้ไข">
+               <i class="bi bi-pencil"></i>
+            </a>
+          </td>
+        </tr>`;
+      })
+      .join("");
+
+    tbody.innerHTML = html;
+    renderPagination(totalPages);
   }
-  if (tableWrapper) tableWrapper.style.display = "";
 
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  currentPage = Math.min(Math.max(1, page), totalPages);
-
-  const start = (currentPage - 1) * PAGE_SIZE;
-  const end = start + PAGE_SIZE;
-  const items = data.slice(start, end);
-
-  const html = items.map(x => {
-const price = Number(x.chem_price);
-const disableBuy = Number.isFinite(price) && price > 0;
-
-// ปุ่มสั่งซื้อ: ถ้า chem_price > 0 ให้เป็นปุ่มเทา + disabled
-const buyBtn = disableBuy
-  ? `<a class="btn btn-sm btn-secondary disabled"
-         href="javascript:void(0)"
-         tabindex="-1"
-         aria-disabled="true"
-         title="มีราคาแล้ว — ปิดการสั่งซื้อ">
-       สั่งซื้อ
-     </a>`
-  : `<a class="btn btn-sm btn-warning"
-         href="/productorderdetail/buy.html?pod_id=${encodeURIComponent(x.pod_id)}&chem_id=${encodeURIComponent(x.chem_id)}&chem_name=${encodeURIComponent(x.chem_name)}">
-       สั่งซื้อ
-     </a>`;
-
-
-
-    return `
-      <tr>
-        <td>${esc(x.chem_name)}</td>
-        <td>${esc(x.order_lot)}</td>
-        <td>${esc(x.company_name)}</td>
-        <td>${fmtNum(x.orderuse)}</td>
-        <td>${fmtNum(x.chem_price)}</td>
-        <td>${fmtNum(x.orderbuy)}</td>
-        <td>${esc(x.coa)}</td>
-        <td>${esc(x.msds)}</td>
-        <td class="text-nowrap">
-          ${buyBtn}
-          <a href="/productorderdetail/edit.html?id=${encodeURIComponent(x.pod_id)}"
-             class="btn btn-dark btn-sm btn-edit"
-             data-id="${esc(x.pod_id)}"
-             title="แก้ไข">
-             <i class="bi bi-pencil"></i>
-          </a>
-        </td>
-      </tr>
-    `;
-  }).join("");
-
-  tbody.innerHTML = html;
-  renderPagination(totalPages);
-}
-
-
+  // ===== Pagination =====
   function renderPagination(totalPages) {
     if (!pager) return;
 
@@ -190,14 +213,18 @@ const buyBtn = disableBuy
 
     addPage(1);
     if (currentPage - windowSize > 2)
-      pages.push(`<li class="page-item disabled"><span class="page-link">…</span></li>`);
+      pages.push(
+        `<li class="page-item disabled"><span class="page-link">…</span></li>`
+      );
 
     const start = Math.max(2, currentPage - windowSize);
     const end = Math.min(totalPages - 1, currentPage + windowSize);
     for (let p = start; p <= end; p++) addPage(p);
 
     if (currentPage + windowSize < totalPages - 1)
-      pages.push(`<li class="page-item disabled"><span class="page-link">…</span></li>`);
+      pages.push(
+        `<li class="page-item disabled"><span class="page-link">…</span></li>`
+      );
 
     if (totalPages > 1) addPage(totalPages);
 
@@ -221,25 +248,33 @@ const buyBtn = disableBuy
     });
   }
 
+  // ===== Load & init =====
   async function load(keyword = "") {
     try {
       const data = await fetchList(keyword);
-      console.log('[POD] sample row =', data?.[0]);  // debug
+      fullData = Array.isArray(data)
+        ? data
+        : Array.isArray(data.data)
+        ? data.data
+        : Array.isArray(data.rows)
+        ? data.rows
+        : Array.isArray(data.items)
+        ? data.items
+        : [];
 
-      fullData = Array.isArray(data) ? data : [];
       updateSortIcons();
       renderTablePage(fullData, 1);
     } catch (e) {
       console.error(e);
       if (tableWrapper) tableWrapper.style.display = "none";
       if (pager) pager.innerHTML = "";
-      tbody.innerHTML =
-        `<tr><td colspan="11" class="text-center text-danger">เกิดข้อผิดพลาดในการโหลดข้อมูล</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="11" class="text-center text-danger">เกิดข้อผิดพลาดในการโหลดข้อมูล</td></tr>`;
     }
   }
 
   load();
 
+  // ===== Search =====
   if (searchBtn && searchInput) {
     searchBtn.addEventListener("click", () => load(searchInput.value.trim()));
     searchInput.addEventListener("keydown", (e) => {
@@ -247,7 +282,7 @@ const buyBtn = disableBuy
     });
   }
 
-  // คลิกหัวตารางเพื่อเรียง
+  // ===== Sort Click =====
   document.querySelectorAll("thead th[data-field]").forEach((th) => {
     th.style.cursor = "pointer";
     if (!th.querySelector(".sort-icon")) {
@@ -261,7 +296,7 @@ const buyBtn = disableBuy
     });
   });
 
-  // เดลิเกตกดแก้ไข
+  // ===== Edit Click =====
   tbody.addEventListener("click", (e) => {
     const btn = e.target.closest(".btn-edit");
     if (!btn) return;
