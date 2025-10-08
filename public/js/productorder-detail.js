@@ -88,24 +88,16 @@ function pickChemQuantity(n){
 }
 function normalizeChemRow(n){
   const chemQty = pickChemQuantity(n);
-  return {
+    return {
     prodetail_id: Number(n.prodetail_id ?? n.prodetailId ?? n.prodetailid ?? 0),
-    chem_id: Number((n.chem_id != null ? n.chem_id : n.id)),
-    chem_percent: Number(
-      (n.chem_percent != null ? n.chem_percent :
-      (n.percent != null ? n.percent :
-      (n.percentage != null ? n.percentage : 0)))
-    ),
-    chem_name: (n.chem_name != null ? n.chem_name :
-               (n.name != null ? n.name : "")),
-    inci_name: (n.inci_name != null ? n.inci_name : ""),
-    product_id: Number(
-      (n.product_id != null ? n.product_id :
-      (n.p_id != null ? n.p_id :
-      (n.productId != null ? n.productId : n.productid)))
-    ),
+    chem_id: Number(n.chem_id ?? n.id ?? 0),
+    chem_percent: Number(n.chem_percent ?? n.percent ?? n.percentage ?? 0),
+    chem_name: n.chem_name ?? n.name ?? "",
+    inci_name: n.inci_name ?? "",
+    product_id: Number(n.product_id ?? n.p_id ?? n.productId ?? n.productid ?? 0),
     chem_quantity: chemQty,
-    chem_remain: chemQty
+    chem_remain: chemQty,
+    price_gram: Number(n.price_gram ?? n.chem_price_gram ?? n.price ?? 0), // ✅ เพิ่ม
   };
 }
 
@@ -169,33 +161,36 @@ async function fillMissingChemNames(rows){
   }));
 }
 
-// ---------- คำนวณ Need / Actual ----------
+// ---------- คำนวณ Need / Actual / ราคา ----------
 function computeChemLines(chems, orderQtyGram) {
   const qty = Number(orderQtyGram || 0);
   return chems.map((r) => {
-    const percent = Number(r.chem_percent || 0);
-    const hasPercent = Number.isFinite(percent) && percent > 0;
-
-    const displayName = (r.chem_name && String(r.chem_name).trim() !== "")
-      ? r.chem_name
-      : `ID ${r.chem_id}`;
+    const p = Number(r.chem_percent || 0);
+    const percent = (p > 0 && p <= 1) ? (p * 100) : p; // รองรับ 0..1 เป็นสัดส่วน
+    const hasPercent = percent > 0;
 
     const need = hasPercent ? (percent * qty * 0.01) : 0;
     const remainRaw = (r.chem_quantity ?? r.chem_remain ?? r.remain ?? r.chem_stock ?? 0);
     const actual = Math.max(need - Number(remainRaw || 0), 0);
 
+    // ✅ เพิ่มคำนวณราคาต่อสาร โดยไม่ต้องแสดง
+    const pricePerGram = Number(r.price_gram ?? r.chem_price_gram ?? 0);
+    const needPrice = need * pricePerGram; // ราคาของสารนี้
+
     return {
       chemId: r.chem_id,
       prodetailId: r.prodetail_id,
-      name: displayName,
-      percent,
-      hasPercent,
-      need,
-      remain: Number(remainRaw),
-      actual
+      name: r.chem_name ?? `ID ${r.chem_id}`,
+      percent, hasPercent,
+      need, remain: Number(remainRaw),
+      actual,
+      // ✅ เก็บไว้เงียบ ๆ เพื่อใช้รวมภายหลัง
+      pricePerGram,
+      needPrice,
     };
   });
 }
+
 
 let CURRENT_PROORDER_ID = 0;
 let CURRENT_LINES = [];
@@ -456,4 +451,57 @@ document.addEventListener('click', async (ev) => {
     }
   btn.removeAttribute('data-busy');
   btn.textContent = oldText;
+});
+
+// ===== ปุ่ม "สั่งซื้อ" ต่อรายการสาร =====
+document.addEventListener('click', async (ev) => {
+  const btn = ev.target.closest('.order-chem');
+  if (!btn) return;
+  ev.preventDefault();
+
+  // กันคลิกซ้ำ/ใบงานถูกผลิตไปแล้ว
+  if (btn.disabled || btn.dataset.ordered === '1') return;
+  if (ORDER_STATUS === 1) {
+    showAlert('warning', 'คำสั่งผลิตนี้ผลิตแล้ว (status=1) ไม่สามารถสั่งซื้อเพิ่มได้');
+    return;
+  }
+
+  const chemId      = Number(btn.dataset.chemId || btn.getAttribute('data-chem-id'));
+  const prodetailId = Number(btn.dataset.prodetailId || btn.getAttribute('data-prodetail-id')) || undefined;
+  const qty         = Number(btn.dataset.qty || btn.getAttribute('data-qty')); // ใช้ actual ที่ต้องซื้อ
+
+  if (!chemId || !Number.isFinite(qty) || qty <= 0) {
+    showAlert('warning', 'ปริมาณที่ต้องซื้อไม่ถูกต้อง');
+    return;
+  }
+
+  if (!confirm(`ยืนยันสั่งซื้อสารเคมี ID ${chemId}\nจำนวน ${qty.toFixed(2)} กรัม ?`)) return;
+
+  // Busy UI
+  const oldHtml = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = 'กำลังเพิ่ม...';
+
+  try {
+    // หลังบ้านต้องรับ proorder_id, chem_id, orderuse
+    await postPOD({
+      proorder_id: CURRENT_PROORDER_ID,
+      chem_id: chemId,
+      orderuse: qty,
+      prodetail_id: prodetailId // ถ้ามี
+    });
+
+    // mark ว่าสั่งแล้ว (กันคลิกซ้ำทุกปุ่มที่เป็น chemId เดียวกัน)
+    const map = loadOrderedMap(CURRENT_PROORDER_ID);
+    map[chemId] = { qty, at: Date.now() };
+    saveOrderedMap(CURRENT_PROORDER_ID, map);
+    markChemOrderedUI(chemId);
+
+    showAlert('success', `เพิ่มคำสั่งซื้อสาร ID ${chemId} จำนวน ${qty.toFixed(2)} กรัม สำเร็จ`);
+  } catch (e) {
+    // rollback UI เมื่อ error
+    btn.disabled = false;
+    btn.innerHTML = oldHtml;
+    showAlert('danger', `เพิ่มคำสั่งซื้อไม่สำเร็จ: ${e.message || e}`);
+  }
 });

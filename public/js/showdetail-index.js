@@ -106,17 +106,18 @@ return fetch('/showdetail/list?' + params.toString(), { headers: { Accept: 'appl
             <td>${esc(brandName)}</td>
             <td class="text-nowrap">
               <div class="btn-group btn-group-sm">
-                <a href="${id ? `/productorder/detail.html?id=${encodeURIComponent(id)}` : '#'}"
+                <a href="${id ? `/showdetail/detail.html?id=${encodeURIComponent(id)}` : '#'}"
                    class="btn btn-sm text-white"
                    style="background-color:#00d312; border-color:#00d312;"
                    title="ดูรายละเอียด" ${id ? '' : 'tabindex="-1" aria-disabled="true" disabled'}>
                   📋
-                </a>
-                <a href="${id ? `/productorder/edit.html?id=${encodeURIComponent(id)}` : '#'}"
+                </a></div>
+                 <div class="btn-group btn-group-sm">
+                <a href="${id ? `/showdetail/edit.html?id=${encodeURIComponent(id)}` : '#'}"
                    class="btn btn-dark btn-sm btn-edit"
                    data-id="${esc(id)}"
                    title="แก้ไขข้อมูล" ${id ? '' : 'tabindex="-1" aria-disabled="true" disabled'}>
-                  <i class="bi bi-pencil"></i>
+                  ยืนยืนยัน
                 </a>
               </div>
             </td>
